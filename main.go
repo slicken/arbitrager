@@ -23,10 +23,11 @@ var (
 	E        exchanges.I
 	shutdown = make(chan bool)
 
-	assets []string
-	except []string
-	debug  = false
-	all    = false
+	assets  []string
+	except  []string
+	debug   = false
+	all     = false
+	minimum = 100.
 )
 
 func appInfo() {
@@ -34,6 +35,7 @@ func appInfo() {
 	fmt.Println(`Usage: ./` + app + ` [-a <quote>|--all] [-e <curr>] [--debug]
        ./` + app + ` -a BTC,ETH                  only thease assets
        ./` + app + ` -e DOT,USDC                 except thease
+       ./` + app + ` -m 100 (default)            mimimum asset balance
        ./` + app + ` --all                       all assets with balance
        ./` + app + ` --debug
                                       -- slk prod 2021 --`)
@@ -72,6 +74,17 @@ func main() {
 				except = Split(os.Args[i+2])
 				log.Println("except", except)
 
+			case "-m":
+				if i+3 > len(os.Args) {
+					appInfo()
+				}
+				tmp, err := strconv.ParseFloat(os.Args[i+2], 64)
+				if err != nil {
+					appInfo()
+				}
+				minimum = tmp
+				log.Println("minimum", minimum)
+
 			case "--all":
 				all = true
 				log.Println("all currencie with balance")
@@ -100,23 +113,27 @@ func main() {
 	}
 	log.Println("connected to", E.GetName())
 
-	// time.Sleep(time.Second)
-	// tmp ---->
-	// numPairs := 0
-	// for _ = range E.AllPairs() {
-	// 	numPairs++
-	// }
-	// if numPairs == 0 {
-	// 	log.Fatal("binance didnt load succesfully, numPairs =", numPairs)
-	// }
-	// // end ----<
-
 	// ARBITRAGE
 	mapSets()
 
 	if all {
 		// for asset := range balance.Balances {
 		for asset := range MapAssets() {
+
+			// check if balance is worth more than mimimum
+			// balance := balance.Balances[asset].Free
+			// _pair, err := E.Pair(asset + "USDT")
+			// if err == nil {
+			// 	_price, err := E.GetTicker(_pair.Name)
+			// 	if err != nil {
+			// 		log.Println(err)
+			// 		continue
+			// 	}
+			// 	balance *= _price
+			// }
+			// if minimum > balance {
+			// 	continue
+			// }
 			assets = append(assets, asset)
 		}
 	}
@@ -146,7 +163,6 @@ func main() {
 	go func() {
 		for {
 			select {
-
 			// orderbook
 			case b := <-handlarC:
 				var resp WsDepthEvent
@@ -156,7 +172,6 @@ func main() {
 				}
 
 				book, _ := orderbook.GetBook(resp.Symbol)
-
 				for _, v := range resp.Asks {
 					p, _ := strconv.ParseFloat(v[0].(string), 64)
 					a, _ := strconv.ParseFloat(v[1].(string), 64)
@@ -179,7 +194,7 @@ func main() {
 						if asset != set.asset {
 							continue
 						}
-						if set.calcProfit(0) {
+						if set.calcProfit(100) {
 							// make orders
 						}
 					}

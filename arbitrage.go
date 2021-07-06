@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"strings"
 
 	"github.com/slicken/arbitrager/currencie"
@@ -13,8 +12,9 @@ import (
 type action byte
 
 const (
-	buy  action = 0
-	sell action = 1
+	MAKER_FEE        = 0.001
+	buy       action = 0
+	sell      action = 1
 )
 
 var actions = map[action]string{
@@ -102,16 +102,23 @@ func (s set) calcProfit(amount float64) bool {
 		// get the right prices
 		var depth []orderbook.Item
 		switch _action {
-		case buy:
+		case 0:
 			depth = book.Asks.Get()
-		case sell:
+		case 1:
 			depth = book.Bids.Get()
 		}
 
-		for _, v := range depth {
-			if v.Total >= amount {
-				price[i] = v.Price
-				break
+		if debug {
+			if len(depth) == 0 {
+				return false
+			}
+			price[i] = depth[0].Price
+		} else {
+			for _, v := range depth {
+				if v.Total >= amount {
+					price[i] = v.Price
+					break
+				}
 			}
 		}
 
@@ -120,12 +127,23 @@ func (s set) calcProfit(amount float64) bool {
 		}
 	}
 
-	// for bbs
-	profit := amount/price[0]/price[1]*price[2] - amount
-	// TODO: bss / sbb / ssb
+	var profit float64
+	switch s.route {
+	case route{0, 0, 1}:
+		profit = amount/price[0]/price[1]*price[2] - amount
+	case route{0, 1, 1}:
+		profit = amount/price[0]*price[1]*price[2] - amount
+	case route{1, 0, 0}:
+		profit = amount*price[0]/price[1]/price[2] - amount
+	case route{1, 1, 0}:
+		profit = amount*price[0]*price[1]/price[2] - amount
+	}
 
-	if profit > 0. || debug {
-		log.Printf("%s:: %-12f %8s %-12s %-12f %12s %-12s %-12f %12s %-12s %-12f\n", s.asset, profit, actions[s.route[0]], pair[0], price[0], actions[s.route[1]], pair[1], price[1], actions[s.route[2]], pair[2], price[2])
+	profit -= (profit * MAKER_FEE * 3)
+	newAmount := amount + profit
+	perc := ((newAmount - amount) / (newAmount + amount)) * 100
+	if profit > 0 || debug {
+		fmt.Printf("%s %-10f (%6.2f%%) %12s %-10s %-12f %12s %-10s %-12f %12s %-10s %-12f\n", s.asset, profit, perc, actions[s.route[0]], pair[0], price[0], actions[s.route[1]], pair[1], price[1], actions[s.route[2]], pair[2], price[2])
 		return true
 	}
 
