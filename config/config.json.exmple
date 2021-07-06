@@ -1,0 +1,24 @@
+{
+    "Exchanges": [
+        {
+            "Name": "Binance",
+            "Enabled": true,
+            "Key": "YOUR_BINANCE_API_KEY",
+            "Secret": "YOUR_BINANCE_API_SECRET"
+	    },
+        {
+            "Name": "Kucoin",
+            "Enabled": false,
+            "Key": "API_KEY",
+            "Secret": "API_SECRET",
+            "Password: "API_PASSWORD_IF_ANY"
+        }
+    ],
+    "Email":
+        {
+            "User": "sender_email@gmail.com",
+    	    "Pass": "your_email_password",
+            "SMTP": "smtp.gmail.com",
+            "PORT": "587"
+	}
+}
