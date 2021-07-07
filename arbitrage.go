@@ -141,8 +141,9 @@ func (s set) calcProfit(amount float64) bool {
 
 	profit -= (profit * MAKER_FEE * 3)
 	newAmount := amount + profit
-	perc := ((newAmount - amount) / (newAmount + amount)) * 100
-	if perc > 0 || debug {
+	perc := (newAmount/amount)*100 - 100
+
+	if perc >= target {
 		log.Printf("%s %-10f (%6.2f%%) %12s %-10s %-12f %12s %-10s %-12f %12s %-10s %-12f\n", s.asset, profit, perc, actions[s.route[0]], pair[0], price[0], actions[s.route[1]], pair[1], price[1], actions[s.route[2]], pair[2], price[2])
 		return true
 	}
@@ -171,7 +172,7 @@ func (s *bbs) Sets(curr string) (Sets sets) {
 			}
 		}
 	}
-	if debug {
+	if debug && len(Sets) > 0 {
 		log.Printf("--- total: %d ---\n", len(Sets))
 	}
 	return
@@ -196,7 +197,7 @@ func (s *bss) Sets(curr string) (Sets sets) {
 			}
 		}
 	}
-	if debug {
+	if debug && len(Sets) > 0 {
 		log.Printf("--- total: %d ---\n", len(Sets))
 	}
 	return
@@ -222,7 +223,7 @@ func (s *sbb) Sets(curr string) (Sets sets) {
 
 		}
 	}
-	if debug {
+	if debug && len(Sets) > 0 {
 		log.Printf("--- total: %d ---\n", len(Sets))
 	}
 	return
@@ -247,7 +248,7 @@ func (s *ssb) Sets(curr string) (Sets sets) {
 			}
 		}
 	}
-	if debug {
+	if debug && len(Sets) > 0 {
 		log.Printf("--- total: %d ---\n", len(Sets))
 	}
 	return

@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -28,9 +29,11 @@ var (
 	// app args
 	assets  []string
 	except  []string
-	debug   = false
 	all     = false
+	target  = 0.2
 	minimum = 100.
+	cpu     = 0
+	debug   = false
 	// tickerdata
 	tickers map[string]float64
 )
@@ -39,9 +42,11 @@ func appInfo() {
 	_, app := filepath.Split(os.Args[0])
 	fmt.Println(`Usage: ./` + app + ` [-a <quote>|--all] [-e <curr>] [--debug]
        ./` + app + ` -a BTC,ETH                  only thease assets
-       ./` + app + ` -e DOT,USDC                 except thease
-       ./` + app + ` -m 100 (default)            mimimum asset balance
-       ./` + app + ` --all                       all assets with balance
+	   ./` + app + ` --all                       all assets with balance
+       ./` + app + ` -e DOT,USDC                 except thease assets
+       ./` + app + ` -t 0.2                      target percent            (default is 0.2)
+       ./` + app + ` -m 100                      mimimum balance (in USD)  (default is 100)
+       ./` + app + ` --CPU 2                     limit cpu cores           (default is max)
        ./` + app + ` --debug
                                       -- slk prod 2021 --`)
 	os.Exit(0)
@@ -72,12 +77,27 @@ func main() {
 				assets = Split(os.Args[i+2])
 				log.Println("arbitraging", assets)
 
+			case "--all":
+				all = true
+				log.Println("all assets with balance")
+
 			case "-e":
 				if i+3 > len(os.Args) {
 					appInfo()
 				}
 				except = Split(os.Args[i+2])
 				log.Println("except", except)
+
+			case "-t":
+				if i+3 > len(os.Args) {
+					appInfo()
+				}
+				tmp, err := strconv.ParseFloat(os.Args[i+2], 64)
+				if err != nil {
+					appInfo()
+				}
+				target = tmp
+				log.Println("target percent", target)
 
 			case "-m":
 				if i+3 > len(os.Args) {
@@ -88,15 +108,22 @@ func main() {
 					appInfo()
 				}
 				minimum = tmp
-				log.Println("minimum", minimum)
+				log.Println("minimum balance (in USD)", minimum)
 
-			case "--all":
-				all = true
-				log.Println("all currencie with balance")
+			case "--CPU":
+				if i+3 > len(os.Args) {
+					appInfo()
+				}
+				tmp, err := strconv.Atoi(os.Args[i+2])
+				if err != nil {
+					appInfo()
+				}
+				cpu = tmp
+				log.Println("cpu cores limited to", cpu)
 
 			case "--debug":
 				debug = true
-				log.Println("enabled debugging")
+				log.Println("debug enabled")
 
 			default:
 			}
@@ -108,6 +135,10 @@ func main() {
 
 	LogToFile("app")
 
+	// SET CPU CORES
+	if cpu != 0 {
+		runtime.GOMAXPROCS(cpu)
+	}
 	// LOAD CONFIG FILE
 	if err := config.ReadConfig(); err != nil {
 		log.Fatalln("could not load config file:", err)
@@ -170,6 +201,11 @@ func main() {
 		}
 	}
 
+	//
+	// TODO: limmit pairs to exchange maximum
+	//
+	pairs = pairs[:500]
+
 	// handle ws streams
 	var handlarC = make(chan []byte, len(pairs))
 
@@ -213,10 +249,10 @@ func main() {
 
 						if debug {
 							free := 10000.
-							_pair, err := E.Pair(asset + "USDT")
-							if err == nil {
-								free /= tickers[_pair.Name]
-							}
+							// _pair, err := E.Pair(asset + "USDT")
+							// if err == nil {
+							// 	free /= tickers[_pair.Name]
+							// }
 							if set.calcProfit(free) {
 								// make orders
 							}
