@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	"log"
 	"strings"
 
 	"github.com/slicken/arbitrager/currencie"
@@ -142,8 +142,8 @@ func (s set) calcProfit(amount float64) bool {
 	profit -= (profit * MAKER_FEE * 3)
 	newAmount := amount + profit
 	perc := ((newAmount - amount) / (newAmount + amount)) * 100
-	if profit > 0 || debug {
-		fmt.Printf("%s %-10f (%6.2f%%) %12s %-10s %-12f %12s %-10s %-12f %12s %-10s %-12f\n", s.asset, profit, perc, actions[s.route[0]], pair[0], price[0], actions[s.route[1]], pair[1], price[1], actions[s.route[2]], pair[2], price[2])
+	if perc > 0 || debug {
+		log.Printf("%s %-10f (%6.2f%%) %12s %-10s %-12f %12s %-10s %-12f %12s %-10s %-12f\n", s.asset, profit, perc, actions[s.route[0]], pair[0], price[0], actions[s.route[1]], pair[1], price[1], actions[s.route[2]], pair[2], price[2])
 		return true
 	}
 
@@ -155,10 +155,7 @@ func (s set) calcProfit(amount float64) bool {
 func (s *bbs) Sets(curr string) (Sets sets) {
 	curr = strings.ToUpper(curr)
 
-	for i, a := range pairsByQuote(E, curr, "") {
-		if debug {
-			fmt.Println(a.Name, i)
-		}
+	for _, a := range pairsByQuote(E, curr, "") {
 		for _, b := range pairsByQuote(E, a.Base, a.Quote) {
 			if c, err := E.Pair(b.Base + curr); err == nil {
 				Sets = append(Sets, set{
@@ -169,13 +166,13 @@ func (s *bbs) Sets(curr string) (Sets sets) {
 					c:     c,
 				})
 				if debug {
-					fmt.Printf("buy ---- %-10s buy ---- %-10s sell --- %-10s\n", a.Name, b.Name, c.Name)
+					log.Printf("buy ---- %-10s buy ---- %-10s sell --- %-10s\n", a.Name, b.Name, c.Name)
 				}
 			}
 		}
 	}
 	if debug {
-		fmt.Printf("--- total: %d ---\n", len(Sets))
+		log.Printf("--- total: %d ---\n", len(Sets))
 	}
 	return
 }
@@ -183,10 +180,7 @@ func (s *bbs) Sets(curr string) (Sets sets) {
 func (s *bss) Sets(curr string) (Sets sets) {
 	curr = strings.ToUpper(curr)
 
-	for i, a := range pairsByQuote(E, curr, "") {
-		if debug {
-			fmt.Println(a.Name, i)
-		}
+	for _, a := range pairsByQuote(E, curr, "") {
 		for _, b := range pairsByBase(E, a.Base, a.Quote) {
 			if c, err := E.Pair(b.Quote + curr); err == nil {
 				Sets = append(Sets, set{
@@ -197,13 +191,13 @@ func (s *bss) Sets(curr string) (Sets sets) {
 					c:     c,
 				})
 				if debug {
-					fmt.Printf("buy ---- %-10s sell --- %-10s sell --- %-10s\n", a.Name, b.Name, c.Name)
+					log.Printf("buy ---- %-10s sell --- %-10s sell --- %-10s\n", a.Name, b.Name, c.Name)
 				}
 			}
 		}
 	}
 	if debug {
-		fmt.Printf("--- total: %d ---\n", len(Sets))
+		log.Printf("--- total: %d ---\n", len(Sets))
 	}
 	return
 }
@@ -211,10 +205,7 @@ func (s *bss) Sets(curr string) (Sets sets) {
 func (s *sbb) Sets(curr string) (Sets sets) {
 	curr = strings.ToUpper(curr)
 
-	for i, a := range pairsByBase(E, curr, "") {
-		if debug {
-			fmt.Println(a.Name, i)
-		}
+	for _, a := range pairsByBase(E, curr, "") {
 		for _, b := range pairsByQuote(E, a.Quote, a.Base) {
 			if c, err := E.Pair(curr + b.Base); err == nil {
 				Sets = append(Sets, set{
@@ -225,14 +216,14 @@ func (s *sbb) Sets(curr string) (Sets sets) {
 					c:     c,
 				})
 				if debug {
-					fmt.Printf("sell --- %-10s buy ---- %-10s buy ---- %-10s\n", a.Name, b.Name, c.Name)
+					log.Printf("sell --- %-10s buy ---- %-10s buy ---- %-10s\n", a.Name, b.Name, c.Name)
 				}
 			}
 
 		}
 	}
 	if debug {
-		fmt.Printf("--- total: %d ---\n", len(Sets))
+		log.Printf("--- total: %d ---\n", len(Sets))
 	}
 	return
 }
@@ -240,10 +231,7 @@ func (s *sbb) Sets(curr string) (Sets sets) {
 func (s *ssb) Sets(curr string) (Sets sets) {
 	curr = strings.ToUpper(curr)
 
-	for i, a := range pairsByBase(E, curr, "") {
-		if debug {
-			fmt.Println(a.Name, i)
-		}
+	for _, a := range pairsByBase(E, curr, "") {
 		for _, b := range pairsByBase(E, a.Quote, a.Base) {
 			if c, err := E.Pair(curr + b.Quote); err == nil {
 				Sets = append(Sets, set{
@@ -254,18 +242,21 @@ func (s *ssb) Sets(curr string) (Sets sets) {
 					c:     c,
 				})
 				if debug {
-					fmt.Printf("sell --- %-10s sell --- %-10s buy ---- %-10s\n", a.Name, b.Name, c.Name)
+					log.Printf("sell --- %-10s sell --- %-10s buy ---- %-10s\n", a.Name, b.Name, c.Name)
 				}
 			}
 		}
 	}
 	if debug {
-		fmt.Printf("--- total: %d ---\n", len(Sets))
+		log.Printf("--- total: %d ---\n", len(Sets))
 	}
 	return
 }
 
 func mapSets() {
+	if debug {
+		log.Println("preparing 'sets' for all possible trade routes")
+	}
 	for _, currency := range MapAssets() {
 		for _, fn := range arbs {
 			for _, set := range fn.Sets(currency) {
@@ -273,8 +264,4 @@ func mapSets() {
 			}
 		}
 	}
-}
-
-func typeName(v interface{}) string {
-	return fmt.Sprintf("%T", v)[6:]
 }

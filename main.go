@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/url"
 	"os"
@@ -12,8 +13,10 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/slicken/arbitrager/balance"
 	"github.com/slicken/arbitrager/config"
 	"github.com/slicken/arbitrager/exchanges"
 	"github.com/slicken/arbitrager/orderbook"
@@ -22,12 +25,14 @@ import (
 var (
 	E        exchanges.I
 	shutdown = make(chan bool)
-
+	// app args
 	assets  []string
 	except  []string
 	debug   = false
 	all     = false
 	minimum = 100.
+	// tickerdata
+	tickers map[string]float64
 )
 
 func appInfo() {
@@ -101,39 +106,51 @@ func main() {
 
 	HandleInterrupt()
 
+	LogToFile("app")
+
 	// LOAD CONFIG FILE
 	if err := config.ReadConfig(); err != nil {
-		log.Fatalf("could not load config file: %v\n", err)
+		log.Fatalln("could not load config file:", err)
 	}
 	log.Println("reading config...")
 
 	// LOAD EXCHANGE
 	if err := LoadExchange("binance"); err != nil {
-		log.Fatalf("could not load exchange: %v\n", err)
+		log.Fatalln("could not load exchange:", err)
 	}
 	log.Println("connected to", E.GetName())
 
-	// ARBITRAGE
+	// PREPARE DATA
+
+	// update all tickers every hour
+	go func() {
+		ticker := time.NewTicker(time.Hour)
+
+		for ; true; <-ticker.C {
+			var err error
+
+			tickers, err = E.GetAllTickers()
+			if err != nil {
+				log.Println("failed to get all tickers:", err)
+			}
+		}
+	}()
+
 	mapSets()
 
 	if all {
 		// for asset := range balance.Balances {
 		for asset := range MapAssets() {
 
-			// check if balance is worth more than mimimum
-			// balance := balance.Balances[asset].Free
-			// _pair, err := E.Pair(asset + "USDT")
-			// if err == nil {
-			// 	_price, err := E.GetTicker(_pair.Name)
-			// 	if err != nil {
-			// 		log.Println(err)
-			// 		continue
-			// 	}
-			// 	balance *= _price
-			// }
-			// if minimum > balance {
-			// 	continue
-			// }
+			//check if balance is worth more than mimimum
+			free := balance.Balances[asset].Free
+			_pair, err := E.Pair(asset + "USDT")
+			if err == nil {
+				free *= tickers[_pair.Name]
+			}
+			if minimum > free {
+				continue
+			}
 			assets = append(assets, asset)
 		}
 	}
@@ -144,9 +161,6 @@ func main() {
 			}
 		}
 	}
-
-	// TODO: create balance/amount maitainer so we know maximum amount/asset we can look arbitrage opportunities of
-	// maby a balance.Update after arbitrage is enuff
 
 	// create pairs to subcribe to
 	var pairs []string
@@ -163,6 +177,8 @@ func main() {
 	go func() {
 		for {
 			select {
+			case <-shutdown:
+				return
 			// orderbook
 			case b := <-handlarC:
 				var resp WsDepthEvent
@@ -194,23 +210,33 @@ func main() {
 						if asset != set.asset {
 							continue
 						}
-						if set.calcProfit(100) {
+
+						if debug {
+							free := 10000.
+							_pair, err := E.Pair(asset + "USDT")
+							if err == nil {
+								free /= tickers[_pair.Name]
+							}
+							if set.calcProfit(free) {
+								// make orders
+							}
+							continue
+						}
+						//check if balance is worth more than mimimum
+						free := balance.Balances[asset].Free
+						_pair, err := E.Pair(asset + "USDT")
+						if err == nil {
+							free *= tickers[_pair.Name]
+						}
+						if minimum > free {
+							continue
+						}
+						// check is we can profit
+						if set.calcProfit(balance.Balances[asset].Free) {
 							// make orders
 						}
 					}
 				}
-
-				// if debug {
-				// 	if len(book.Asks) > 0 {
-				// 		v := book.Asks.Get()[0]
-				// 		fmt.Printf("%-16s %-16.4f %-16.4f %-16.4f\n", book.Name, v.Price, v.Amount, v.Total)
-
-				// 		// cls()
-				// 		// for _, v := range book.Asks.Get() {
-				// 		// 	fmt.Printf("%-16s %-16.4f %-16.4f %-16.4f\n", book.Name, v.Price, v.Amount, v.Total)
-				// 		// }
-				// 	}
-				// }
 
 			default:
 			}
@@ -219,6 +245,11 @@ func main() {
 
 	// subscribe orderbook data
 	for _, pair := range pairs {
+		select {
+		case <-shutdown:
+			return
+		default:
+		}
 		subscribePair(pair, handlarC)
 	}
 
@@ -333,4 +364,18 @@ func HandleInterrupt() {
 		log.Println("shutting down...")
 		close(shutdown)
 	}()
+}
+
+// LogToFile ...
+func LogToFile(tag string) {
+	if tag != "" {
+		tag = tag + "_"
+	}
+	logName := tag + time.Now().Format("20060102") + ".log"
+	logFile, err := os.Create(logName)
+	if err != nil {
+		log.Fatalf("could not create %q: %v", logFile.Name(), err)
+	}
+	log.SetOutput(io.MultiWriter(os.Stderr, logFile))
+	log.Printf("successfully created logfile %q.\n", logFile.Name())
 }
