@@ -34,20 +34,23 @@ var (
 	minimum = 100.
 	cpu     = 0
 	debug   = false
-	// tickerdata
-	tickers map[string]float64
+
+	// helper
+	tickers    map[string]float64
+	_, appName = filepath.Split(os.Args[0])
 )
 
 func appInfo() {
-	_, app := filepath.Split(os.Args[0])
-	fmt.Println(`Usage: ./` + app + ` [-a <quote>|--all] [-e <curr>] [--debug]
-       ./` + app + ` -a BTC,ETH                  only thease assets
-	   ./` + app + ` --all                       all assets with balance
-       ./` + app + ` -e DOT,USDC                 except thease assets
-       ./` + app + ` -t 0.2                      target percent            (default is 0.2)
-       ./` + app + ` -m 100                      mimimum balance (in USD)  (default is 100)
-       ./` + app + ` --CPU 2                     limit cpu cores           (default is max)
-       ./` + app + ` --debug
+	fmt.Println(`Usage: ./` + appName + ` [-a <assets>|--all] [-e <assets>] [-t <percent>] [-m <USD>]
+             [--CPU <cores>] [--debug]
+Arguments
+  -a, --asset   BTC,ETH,BNB              only thease assets.  TIP use quote assets
+      --all                              all assets with balance
+  -e, --except  DOT,USDC                 except thease assets
+  -t, --target  0.5                      target percent            (default is 0.2)
+  -m, --minimum 500                      mimimum balance (in USD)  (default is 100)
+      --CPU 2                            limit cpu cores           (default is max)
+      --debug
                                       -- slk prod 2021 --`)
 	os.Exit(0)
 }
@@ -70,7 +73,7 @@ func main() {
 		for i, arg := range os.Args[1:] {
 			// fmt.Printf("i=%d  arg=%s\n", i, arg)
 			switch arg {
-			case "-a":
+			case "-a", "--asset":
 				if i+3 > len(os.Args) {
 					appInfo()
 				}
@@ -81,14 +84,14 @@ func main() {
 				all = true
 				log.Println("all assets with balance")
 
-			case "-e":
+			case "-e", "--except":
 				if i+3 > len(os.Args) {
 					appInfo()
 				}
 				except = Split(os.Args[i+2])
 				log.Println("except", except)
 
-			case "-t":
+			case "-t", "--target":
 				if i+3 > len(os.Args) {
 					appInfo()
 				}
@@ -99,7 +102,7 @@ func main() {
 				target = tmp
 				log.Println("target percent", target)
 
-			case "-m":
+			case "-m", "--minimum":
 				if i+3 > len(os.Args) {
 					appInfo()
 				}
@@ -124,18 +127,19 @@ func main() {
 			case "--debug":
 				debug = true
 				log.Println("debug enabled")
+				log.Println("10,000 USDT test account")
 
 			default:
 			}
-
 		}
 	}
 
 	HandleInterrupt()
 
-	LogToFile("app")
+	// LOG TO FILE
+	LogToFile(appName)
 
-	// SET CPU CORES
+	// LIMIT CPU CORES
 	if cpu != 0 {
 		runtime.GOMAXPROCS(cpu)
 	}
@@ -167,22 +171,24 @@ func main() {
 		}
 	}()
 
-	mapSets()
-
 	if all {
-		// for asset := range balance.Balances {
-		for asset := range MapAssets() {
-
-			//check if balance is worth more than mimimum
-			free := balance.Balances[asset].Free
-			_pair, err := E.Pair(asset + "USDT")
-			if err == nil {
-				free *= tickers[_pair.Name]
+		if debug {
+			for asset := range MapAssets() {
+				assets = append(assets, asset)
 			}
-			if minimum > free {
-				continue
+		} else {
+			for asset := range balance.Balances {
+				//check if balance is worth more than mimimum
+				free := balance.Balances[asset].Free
+				_pair, err := E.Pair(asset + "USDT")
+				if err == nil {
+					free *= tickers[_pair.Name]
+				}
+				if minimum > free {
+					continue
+				}
+				assets = append(assets, asset)
 			}
-			assets = append(assets, asset)
 		}
 	}
 	for _, e := range except {
@@ -192,6 +198,8 @@ func main() {
 			}
 		}
 	}
+
+	mapSets()
 
 	// create pairs to subcribe to
 	var pairs []string
@@ -203,8 +211,10 @@ func main() {
 
 	//
 	// TODO: limmit pairs to exchange maximum
+	//       what is Binance, Kucoin, FTX maximum ws
 	//
-	pairs = pairs[:500]
+	pairs = pairs[:1000]
+	log.Printf("%s total: %d\n", pairs, len(pairs))
 
 	// handle ws streams
 	var handlarC = make(chan []byte, len(pairs))
@@ -249,13 +259,7 @@ func main() {
 
 						if debug {
 							free := 10000.
-							// _pair, err := E.Pair(asset + "USDT")
-							// if err == nil {
-							// 	free /= tickers[_pair.Name]
-							// }
-							if set.calcProfit(free) {
-								// make orders
-							}
+							set.calcProfit(free)
 							continue
 						}
 						//check if balance is worth more than mimimum
@@ -268,8 +272,13 @@ func main() {
 							continue
 						}
 						// check is we can profit
-						if set.calcProfit(balance.Balances[asset].Free) {
-							// make orders
+						if tradesize := set.calcProfit(balance.Balances[asset].Free); tradesize >= minimum {
+							// calc tradesize1
+							// E.SendMarket(set.a.Name, actions[set.route[0]], tradesize1)
+							// // calc tradesize2
+							// E.SendMarket(set.b.Name, actions[set.route[1]], tradesize2)
+							// // calc tradesize3
+							// E.SendMarket(set.c.Name, actions[set.route[2]], tradesize3)
 						}
 					}
 				}
@@ -309,15 +318,48 @@ func subscribePair(name string, handler chan<- []byte) {
 	go func(name string) {
 		defer c.Close()
 
+		keepAlive(c, time.Minute)
 		for {
 			if _, message, err := c.ReadMessage(); err != nil {
+				// if errors.Is(err, syscall.EPIPE) {
+				// 	// boken pipe - just ignore.
+				// 	continue
+				// } else {
 				log.Println("ws error:", err)
+				// }
 			} else {
 				handler <- message
 			}
 		}
 	}(name)
 
+}
+
+func keepAlive(c *websocket.Conn, timeout time.Duration) {
+	ticker := time.NewTicker(timeout)
+
+	lastResponse := time.Now()
+	c.SetPongHandler(func(msg string) error {
+		lastResponse = time.Now()
+		return nil
+	})
+
+	go func() {
+		defer ticker.Stop()
+		for {
+			deadline := time.Now().Add(10 * time.Second)
+			err := c.WriteControl(websocket.PingMessage, []byte{}, deadline)
+			if err != nil {
+				c.Close()
+				return
+			}
+			<-ticker.C
+			if time.Since(lastResponse) > timeout {
+				c.Close()
+				return
+			}
+		}
+	}()
 }
 
 // WsDepthEvent - ws orderbook data

@@ -92,7 +92,7 @@ func pairsByBase(e exchanges.I, base, except string) (pairs []currencie.Pair) {
 	return
 }
 
-func (s set) calcProfit(amount float64) bool {
+func (s set) calcProfit(amount float64) float64 {
 	var pair = [3]string{s.a.Name, s.b.Name, s.c.Name}
 	var price [3]float64
 
@@ -108,22 +108,25 @@ func (s set) calcProfit(amount float64) bool {
 			depth = book.Bids.Get()
 		}
 
+		//
+		// TODO: send right tradeszize for 1 or all 3
+		//
+
 		if debug {
 			if len(depth) == 0 {
-				return false
+				return 0.
 			}
 			price[i] = depth[0].Price
-		} else {
-			for _, v := range depth {
-				if v.Total >= amount {
-					price[i] = v.Price
-					break
-				}
-			}
 		}
 
+		for _, v := range depth {
+			if v.Total >= amount {
+				price[i] = v.Price
+				break
+			}
+		}
 		if price[i] == 0 {
-			return false
+			return 0.
 		}
 	}
 
@@ -145,12 +148,13 @@ func (s set) calcProfit(amount float64) bool {
 
 	if perc >= target {
 		log.Printf("%s %-10f (%6.2f%%) %12s %-10s %-12f %12s %-10s %-12f %12s %-10s %-12f\n", s.asset, profit, perc, actions[s.route[0]], pair[0], price[0], actions[s.route[1]], pair[1], price[1], actions[s.route[2]], pair[2], price[2])
-		return true
+		return 1
+		//
+		// TODO: send right tradeszize for 1 or all 3
+		//
 	}
 
-	// TODO: when profit .. check what biggest profit amout we can get vs diffrent depths in books
-
-	return false
+	return 0.
 }
 
 func (s *bbs) Sets(curr string) (Sets sets) {
@@ -256,9 +260,9 @@ func (s *ssb) Sets(curr string) (Sets sets) {
 
 func mapSets() {
 	if debug {
-		log.Println("preparing 'sets' for all possible trade routes")
+		log.Println("mapping out trade routs for", assets)
 	}
-	for _, currency := range MapAssets() {
+	for _, currency := range assets {
 		for _, fn := range arbs {
 			for _, set := range fn.Sets(currency) {
 				SetsMap[set.a] = append(SetsMap[set.a], set)
