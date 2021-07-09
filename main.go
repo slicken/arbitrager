@@ -306,7 +306,7 @@ func subscribePair(name string, handler chan<- []byte) {
 		Scheme: "wss",
 		Host:   "stream.binance.com:9443",
 		Path:   fmt.Sprintf("/ws/%s@depth", strings.ToLower(name)),
-		// Path: fmt.Sprintf("/ws/%s@depth%s@100ms", strings.ToLower(name), "10"),
+		// Path: fmt.Sprintf("/ws/%s@depth%d@100ms", strings.ToLower(name), 10),
 	}
 	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	if err != nil {
@@ -330,6 +330,61 @@ func subscribePair(name string, handler chan<- []byte) {
 			} else {
 				handler <- message
 			}
+		}
+	}(name)
+
+}
+
+func subscribeAllPairs(handler chan<- []byte) {
+	u := url.URL{
+		Scheme: "wss",
+		Host:   "stream.binance.com:9443",
+		// Path:   "/ws/",                           // do we need path?
+	}
+	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	if err != nil {
+		log.Println("dial:", err)
+		return
+	}
+
+	var pairList []string
+	for _, pair := range pairs {
+		pairList = append(pairList, strings.ToLower(name) + "@depth")
+		// pairList = append(pairList, fmt.Sprintf("%s@depth@%d@100ms", strings.ToLower(name), 20), // valid levels are 5, 10, or 20
+	}
+	
+	// json payload
+	var payload struct {
+		method string,
+		params []string,
+		id uint
+	}{
+		"method": "SUBSCRIBE",
+		"params": pairList,
+		"id": 731501
+	}
+
+	// marshal payload
+	
+	err := c.WriteMessage(websocket.TextMessage, payload)
+	if err != nil {
+		log.Println("write message:", err)
+		c.Close()
+		return
+	}
+	
+	log.Println("subscribed to", pairList)
+
+	go func(name string) {
+		defer c.Close()
+
+		keepAlive(c, time.Minute)
+		for {
+			if _, message, err := c.ReadMessage(); err != nil {
+				log.Println("ws error:", err)
+				break
+			}
+			handler <- message
 		}
 	}(name)
 
