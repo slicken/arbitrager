@@ -213,7 +213,7 @@ func main() {
 	// TODO: limmit pairs to exchange maximum
 	//       what is Binance, Kucoin, FTX maximum ws
 	//
-	pairs = pairs[:1000]
+	pairs = pairs[:1024]
 	log.Printf("%s total: %d\n", pairs, len(pairs))
 
 	// handle ws streams
@@ -288,7 +288,10 @@ func main() {
 		}
 	}()
 
-	// subscribe orderbook data
+	// subscribe streams
+
+	// subscribeAllPairs(handlerC)
+
 	for _, pair := range pairs {
 		select {
 		case <-shutdown:
@@ -306,7 +309,6 @@ func subscribePair(name string, handler chan<- []byte) {
 		Scheme: "wss",
 		Host:   "stream.binance.com:9443",
 		Path:   fmt.Sprintf("/ws/%s@depth", strings.ToLower(name)),
-		// Path: fmt.Sprintf("/ws/%s@depth%d@100ms", strings.ToLower(name), 10),
 	}
 	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	if err != nil {
@@ -315,38 +317,40 @@ func subscribePair(name string, handler chan<- []byte) {
 	}
 	log.Println("subscribed to", name)
 
-	go func(name string) {
+	go func() {
 		defer c.Close()
 
 		keepAlive(c, time.Minute)
 		for {
 			if _, message, err := c.ReadMessage(); err != nil {
-				// if errors.Is(err, syscall.EPIPE) {
-				// 	// boken pipe - just ignore.
-				// 	continue
-				// } else {
 				log.Println("ws error:", err)
-				// }
-			} else {
-				handler <- message
+				break
 			}
+			handler <- message
 		}
-	}(name)
-
+	}()
 }
 
+var wsCombinedPath = "/stream?streams="
+
 func subscribeAllPairs(handler chan<- []byte) {
+	path := wsCombinedPath
+	for _, v := range pairs {
+		path += fmt.Sprintf("%s@depth%s", strings.ToLower(v), "" /* "@20@100ms" */) + "/"
+	}
+	path = path[:len(path)-1]
+	
 	u := url.URL{
 		Scheme: "wss",
 		Host:   "stream.binance.com:9443",
-		// Path:   "/ws/",                           // do we need path?
+		Path:	path,            // Path:   "/ws/",                           // do we need path?
 	}
 	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	if err != nil {
 		log.Println("dial:", err)
 		return
 	}
-
+/*
 	var pairList []string
 	for _, pair := range pairs {
 		pairList = append(pairList, strings.ToLower(name) + "@depth")
@@ -372,10 +376,10 @@ func subscribeAllPairs(handler chan<- []byte) {
 		c.Close()
 		return
 	}
-	
-	log.Println("subscribed to", pairList)
+*/	
+	log.Println("subscribed to", pairs)
 
-	go func(name string) {
+	go func() {
 		defer c.Close()
 
 		keepAlive(c, time.Minute)
@@ -386,8 +390,7 @@ func subscribeAllPairs(handler chan<- []byte) {
 			}
 			handler <- message
 		}
-	}(name)
-
+	}()
 }
 
 func keepAlive(c *websocket.Conn, timeout time.Duration) {
