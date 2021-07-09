@@ -361,7 +361,7 @@ func subscribeAllPairs(handler chan<- []byte) {
 	var payload struct {
 		method string,
 		params []string,
-		id uint
+		id uint64
 	}{
 		"method": "SUBSCRIBE",
 		"params": pairList,
@@ -369,8 +369,9 @@ func subscribeAllPairs(handler chan<- []byte) {
 	}
 
 	// marshal payload
+	// err := c.JSON.WriteMessage(websocket.TextMessage, payload)
 	
-	err := c.WriteMessage(websocket.TextMessage, payload)
+	err := websocket.JSON.Send(c, payload)
 	if err != nil {
 		log.Println("write message:", err)
 		c.Close()
