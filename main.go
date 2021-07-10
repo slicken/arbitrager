@@ -219,7 +219,10 @@ func main() {
 	//       what is Binance, Kucoin, FTX maximum ws
 	//
 	pairs = pairs[:1024]
+<<<<<<< HEAD
 	// pairs = pairs[:1024]
+=======
+>>>>>>> 9290c165cfd47dd266981bc9757e61574c5975ff
 	log.Printf("%s total: %d\n", pairs, len(pairs))
 
 	// handle ws streams
@@ -293,7 +296,14 @@ func main() {
 		}
 	}()
 
+<<<<<<< HEAD
 	// subscribe to orderbooks
+=======
+	// subscribe streams
+
+	// subscribeAllPairs(handlerC)
+
+>>>>>>> 9290c165cfd47dd266981bc9757e61574c5975ff
 	for _, pair := range pairs {
 		go subscribePair(pair, handlarC)
 	}
@@ -307,7 +317,11 @@ restart:
 	u := url.URL{
 		Scheme: "wss",
 		Host:   "stream.binance.com:9443",
+<<<<<<< HEAD
 		Path:   fmt.Sprintf("/ws/%s@depth%s", strings.ToLower(name), level),
+=======
+		Path:   fmt.Sprintf("/ws/%s@depth", strings.ToLower(name)),
+>>>>>>> 9290c165cfd47dd266981bc9757e61574c5975ff
 	}
 	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	if err != nil {
@@ -317,6 +331,7 @@ restart:
 	c.PongHandler()
 	log.Println("subscribed to", name)
 
+<<<<<<< HEAD
 	// go keepAlive(c, time.Minute)
 	defer c.Close()
 
@@ -339,6 +354,83 @@ restart:
 
 		handler <- message
 	}
+=======
+	go func() {
+		defer c.Close()
+
+		keepAlive(c, time.Minute)
+		for {
+			if _, message, err := c.ReadMessage(); err != nil {
+				log.Println("ws error:", err)
+				break
+			}
+			handler <- message
+		}
+	}()
+}
+
+var wsCombinedPath = "/stream?streams="
+
+func subscribeAllPairs(handler chan<- []byte) {
+	path := wsCombinedPath
+	for _, v := range pairs {
+		path += fmt.Sprintf("%s@depth%s", strings.ToLower(v), "" /* "@20@100ms" */) + "/"
+	}
+	path = path[:len(path)-1]
+	
+	u := url.URL{
+		Scheme: "wss",
+		Host:   "stream.binance.com:9443",
+		Path:	path,            // Path:   "/ws/",                           // do we need path?
+	}
+	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	if err != nil {
+		log.Println("dial:", err)
+		return
+	}
+/*
+	var pairList []string
+	for _, pair := range pairs {
+		pairList = append(pairList, strings.ToLower(name) + "@depth")
+		// pairList = append(pairList, fmt.Sprintf("%s@depth@%d@100ms", strings.ToLower(name), 20), // valid levels are 5, 10, or 20
+	}
+	
+	// json payload
+	var payload struct {
+		method string,
+		params []string,
+		id uint64
+	}{
+		"method": "SUBSCRIBE",
+		"params": pairList,
+		"id": 731501
+	}
+
+	// marshal payload
+	// err := c.JSON.WriteMessage(websocket.TextMessage, payload)
+	
+	err := websocket.JSON.Send(c, payload)
+	if err != nil {
+		log.Println("write message:", err)
+		c.Close()
+		return
+	}
+*/	
+	log.Println("subscribed to", pairs)
+
+	go func() {
+		defer c.Close()
+
+		keepAlive(c, time.Minute)
+		for {
+			if _, message, err := c.ReadMessage(); err != nil {
+				log.Println("ws error:", err)
+				break
+			}
+			handler <- message
+		}
+	}()
+>>>>>>> 9290c165cfd47dd266981bc9757e61574c5975ff
 }
 
 func keepAlive(c *websocket.Conn, timeout time.Duration) {
