@@ -1,7 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"log"
+	"sort"
 	"strings"
 
 	"github.com/slicken/arbitrager/currencie"
@@ -112,7 +114,7 @@ func (s set) calcProfit(amount float64) float64 {
 		// TODO: send right tradeszize for 1 or all 3
 		//
 
-		if debug {
+		if verbose {
 			if len(depth) == 0 {
 				return 0.
 			}
@@ -157,6 +159,99 @@ func (s set) calcProfit(amount float64) float64 {
 	return 0.
 }
 
+type profitAmount struct {
+	profit float64
+	amount float64
+}
+
+func (s set) calcMaxProfit(amount float64) float64 {
+	var pair = [3]string{s.a.Name, s.b.Name, s.c.Name}
+	var price [3]float64
+
+	var profits = make([]profitAmount, 0)
+
+	stepAmount := amount
+	for stepAmount > 0 {
+
+	next:
+
+		fmt.Printf("stepAmount=%.f\n", stepAmount)
+
+		tempAmount := stepAmount
+		for i, _action := range s.route {
+			book, _ := orderbook.GetBook(pair[i])
+
+			// 10000usdt
+			// buy 	eth 	10000/2500 	= 4
+			// buy 	dot		4/0.0078	= 512
+			// sell dot 	512*15.7	= 8038  usdt
+
+			//				10000/2500/0.078 511
+
+			switch _action {
+			case 0:
+				for _, depth := range book.Asks.Get() {
+					if depth.Total >= tempAmount/depth.Price {
+						tempAmount /= depth.Price
+						price[i] = depth.Price
+						break
+					}
+				}
+			case 1:
+				for _, depth := range book.Bids.Get() {
+					if depth.Total >= tempAmount*depth.Price {
+						tempAmount *= depth.Price
+						price[i] = depth.Price
+						break
+					}
+				}
+
+			}
+			// next step if no depth price
+			if price[i] == 0 {
+				stepAmount -= (amount / 10)
+				goto next
+			}
+
+		}
+
+		var profit float64
+		switch s.route {
+		case route{0, 0, 1}:
+			profit = stepAmount/price[0]/price[1]*price[2] - stepAmount
+		case route{0, 1, 1}:
+			profit = stepAmount/price[0]*price[1]*price[2] - stepAmount
+		case route{1, 0, 0}:
+			profit = stepAmount*price[0]/price[1]/price[2] - stepAmount
+		case route{1, 1, 0}:
+			profit = stepAmount*price[0]*price[1]/price[2] - stepAmount
+		}
+
+		profit -= (profit * MAKER_FEE * 3)
+		profits = append(profits, profitAmount{profit: profit, amount: stepAmount})
+
+		stepAmount -= (amount / 10)
+	}
+
+	// sort biggest profit first
+	sort.SliceStable(profits, func(i, j int) bool {
+		return profits[i].profit > profits[j].profit
+	})
+
+	profit := profits[0].profit
+	amount = profits[0].amount
+	newAmount := amount + profit
+	perc := (newAmount/amount)*100 - 100
+
+	if perc >= target {
+		log.Printf("%s %-10f (%6.2f%%) %12s %-10s %-12f %12s %-10s %-12f %12s %-10s %-12f\n", s.asset, profit, perc, actions[s.route[0]], pair[0], price[0], actions[s.route[1]], pair[1], price[1], actions[s.route[2]], pair[2], price[2])
+		return amount
+	}
+
+	return 0.
+
+}
+
 func (s *bbs) Sets(curr string) (Sets sets) {
 	curr = strings.ToUpper(curr)
 
@@ -170,13 +265,13 @@ func (s *bbs) Sets(curr string) (Sets sets) {
 					b:     b,
 					c:     c,
 				})
-				if debug {
+				if verbose {
 					log.Printf("buy ---- %-10s buy ---- %-10s sell --- %-10s\n", a.Name, b.Name, c.Name)
 				}
 			}
 		}
 	}
-	if debug && len(Sets) > 0 {
+	if verbose && len(Sets) > 0 {
 		log.Printf("--- total: %d ---\n", len(Sets))
 	}
 	return
@@ -195,13 +290,13 @@ func (s *bss) Sets(curr string) (Sets sets) {
 					b:     b,
 					c:     c,
 				})
-				if debug {
+				if verbose {
 					log.Printf("buy ---- %-10s sell --- %-10s sell --- %-10s\n", a.Name, b.Name, c.Name)
 				}
 			}
 		}
 	}
-	if debug && len(Sets) > 0 {
+	if verbose && len(Sets) > 0 {
 		log.Printf("--- total: %d ---\n", len(Sets))
 	}
 	return
@@ -220,14 +315,14 @@ func (s *sbb) Sets(curr string) (Sets sets) {
 					b:     b,
 					c:     c,
 				})
-				if debug {
+				if verbose {
 					log.Printf("sell --- %-10s buy ---- %-10s buy ---- %-10s\n", a.Name, b.Name, c.Name)
 				}
 			}
 
 		}
 	}
-	if debug && len(Sets) > 0 {
+	if verbose && len(Sets) > 0 {
 		log.Printf("--- total: %d ---\n", len(Sets))
 	}
 	return
@@ -246,20 +341,20 @@ func (s *ssb) Sets(curr string) (Sets sets) {
 					b:     b,
 					c:     c,
 				})
-				if debug {
+				if verbose {
 					log.Printf("sell --- %-10s sell --- %-10s buy ---- %-10s\n", a.Name, b.Name, c.Name)
 				}
 			}
 		}
 	}
-	if debug && len(Sets) > 0 {
+	if verbose && len(Sets) > 0 {
 		log.Printf("--- total: %d ---\n", len(Sets))
 	}
 	return
 }
 
 func mapSets() {
-	if debug {
+	if verbose {
 		log.Println("mapping out trade routs for", assets)
 	}
 	for _, currency := range assets {

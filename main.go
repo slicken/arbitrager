@@ -24,33 +24,35 @@ import (
 )
 
 var (
-	E        exchanges.I
-	shutdown = make(chan bool)
-	// app args
+	// args
 	assets  []string
 	except  []string
 	all     = false
-	target  = 0.2
+	target  = 0.5
 	minimum = 100.
+	level   = ""
 	cpu     = 0
-	debug   = false
+	verbose = false
 
-	// helper
+	// -------
+	E          exchanges.I
 	tickers    map[string]float64
+	shutdown   = make(chan bool)
 	_, appName = filepath.Split(os.Args[0])
 )
 
 func appInfo() {
 	fmt.Println(`Usage: ./` + appName + ` [-a <assets>|--all] [-e <assets>] [-t <percent>] [-m <USD>]
-             [--CPU <cores>] [--debug]
+             [--100] [--CPU <cores>] [--verbose]
 Arguments
-  -a, --asset   BTC,ETH,BNB              only thease assets.  TIP use quote assets
+  -a, --asset   BTC,ETH,BNB              only thease assets. TIP use quote assets
       --all                              all assets with balance
   -e, --except  DOT,USDC                 except thease assets
-  -t, --target  0.5                      target percent            (default is 0.2)
-  -m, --minimum 500                      mimimum balance (in USD)  (default is 100)
-      --CPU 2                            limit cpu cores           (default is max)
-      --debug
+  -t, --target  1.0                      target percent             (default is 0.5)
+  -m, --minimum 1000                     mimimum balance (in USD)   (default is 100)
+      --100                              fetch data every 100ms     (default 1000ms)
+      --CPU 2                            limit cpu cores            (default is max)
+      --verbose
                                       -- slk prod 2021 --`)
 	os.Exit(0)
 }
@@ -71,7 +73,6 @@ func main() {
 		appInfo()
 	} else {
 		for i, arg := range os.Args[1:] {
-			// fmt.Printf("i=%d  arg=%s\n", i, arg)
 			switch arg {
 			case "-a", "--asset":
 				if i+3 > len(os.Args) {
@@ -113,6 +114,10 @@ func main() {
 				minimum = tmp
 				log.Println("minimum balance (in USD)", minimum)
 
+			case "--100":
+				level = "20@100ms"
+				log.Println("fetching data every 100ms")
+
 			case "--CPU":
 				if i+3 > len(os.Args) {
 					appInfo()
@@ -124,9 +129,9 @@ func main() {
 				cpu = tmp
 				log.Println("cpu cores limited to", cpu)
 
-			case "--debug":
-				debug = true
-				log.Println("debug enabled")
+			case "--verbose":
+				verbose = true
+				log.Println("verbose enabled")
 				log.Println("10,000 USDT test account")
 
 			default:
@@ -172,7 +177,7 @@ func main() {
 	}()
 
 	if all {
-		if debug {
+		if verbose {
 			for asset := range MapAssets() {
 				assets = append(assets, asset)
 			}
@@ -213,7 +218,8 @@ func main() {
 	// TODO: limmit pairs to exchange maximum
 	//       what is Binance, Kucoin, FTX maximum ws
 	//
-	pairs = pairs[:1000]
+	pairs = pairs[:1024]
+	// pairs = pairs[:1024]
 	log.Printf("%s total: %d\n", pairs, len(pairs))
 
 	// handle ws streams
@@ -225,7 +231,7 @@ func main() {
 			select {
 			case <-shutdown:
 				return
-			// orderbook
+
 			case b := <-handlarC:
 				var resp WsDepthEvent
 				if err := json.Unmarshal(b, &resp); err != nil {
@@ -245,7 +251,7 @@ func main() {
 					book.Bids.Add(p, a)
 				}
 
-				// look for arbitrage on all possible routes
+				// loop throu all possible routes
 				pair, err := E.Pair(resp.Symbol)
 				if err != nil {
 					continue
@@ -256,8 +262,7 @@ func main() {
 						if asset != set.asset {
 							continue
 						}
-
-						if debug {
+						if verbose {
 							free := 10000.
 							set.calcProfit(free)
 							continue
@@ -288,51 +293,52 @@ func main() {
 		}
 	}()
 
-	// subscribe orderbook data
+	// subscribe to orderbooks
 	for _, pair := range pairs {
-		select {
-		case <-shutdown:
-			return
-		default:
-		}
-		subscribePair(pair, handlarC)
+		go subscribePair(pair, handlarC)
 	}
 
 	<-shutdown
 }
 
 func subscribePair(name string, handler chan<- []byte) {
+
+restart:
 	u := url.URL{
 		Scheme: "wss",
 		Host:   "stream.binance.com:9443",
-		Path:   fmt.Sprintf("/ws/%s@depth", strings.ToLower(name)),
-		// Path: fmt.Sprintf("/ws/%s@depth%s@100ms", strings.ToLower(name), "10"),
+		Path:   fmt.Sprintf("/ws/%s@depth%s", strings.ToLower(name), level),
 	}
 	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	if err != nil {
 		log.Println("dial:", err)
 		return
 	}
+	c.PongHandler()
 	log.Println("subscribed to", name)
 
-	go func(name string) {
-		defer c.Close()
+	// go keepAlive(c, time.Minute)
+	defer c.Close()
 
-		keepAlive(c, time.Minute)
-		for {
-			if _, message, err := c.ReadMessage(); err != nil {
-				// if errors.Is(err, syscall.EPIPE) {
-				// 	// boken pipe - just ignore.
-				// 	continue
-				// } else {
-				log.Println("ws error:", err)
-				// }
-			} else {
-				handler <- message
-			}
+	for {
+		select {
+		case <-shutdown:
+			return
+		default:
 		}
-	}(name)
 
+		_, message, err := c.ReadMessage()
+		if err != nil {
+			if strings.Contains(err.Error(), "closed") {
+				log.Println("ws closed. reconnecting", name)
+				c.Close()
+				goto restart
+			}
+			log.Println("ws error:", err)
+		}
+
+		handler <- message
+	}
 }
 
 func keepAlive(c *websocket.Conn, timeout time.Duration) {
@@ -344,22 +350,28 @@ func keepAlive(c *websocket.Conn, timeout time.Duration) {
 		return nil
 	})
 
-	go func() {
-		defer ticker.Stop()
-		for {
+	for {
+		select {
+		case <-shutdown:
+			return
+
+		case <-ticker.C:
+			if time.Since(lastResponse) > timeout {
+				log.Println("keepAlive timeout. closing.")
+				c.Close()
+				return
+			}
 			deadline := time.Now().Add(10 * time.Second)
 			err := c.WriteControl(websocket.PingMessage, []byte{}, deadline)
 			if err != nil {
+				log.Println("keepAlive error:", err)
 				c.Close()
 				return
 			}
-			<-ticker.C
-			if time.Since(lastResponse) > timeout {
-				c.Close()
-				return
-			}
+
+		default:
 		}
-	}()
+	}
 }
 
 // WsDepthEvent - ws orderbook data

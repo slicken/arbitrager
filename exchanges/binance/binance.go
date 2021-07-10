@@ -582,3 +582,5 @@ func (e *Binance) LastTrades(symbol string, len int64) (interface{}, error) {
 
 	// return sfmt.Println(string(s))
 }
+
+// var Exchangeinfo ExchangeInfo
