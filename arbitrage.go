@@ -13,7 +13,7 @@ import (
 type action byte
 
 const (
-	MAKER_FEE        = 1.001
+	MAKER_FEE        = 0.001
 	buy       action = 0
 	sell      action = 1
 )
@@ -109,50 +109,31 @@ func (s set) calcProfit(amount float64) float64 {
 			depth = book.Bids.Get()
 		}
 
-		//
-		// TODO: send right tradeszize for 1 or all 3
-		//
-
-		if verbose {
-			if len(depth) == 0 {
-				return 0
-			}
-			price[i] = depth[0].Price
-		}
-
-		for _, v := range depth {
-			if v.Total >= amount {
-				price[i] = v.Price
-				break
-			}
-		}
-		if price[i] == 0 {
+		if len(depth) == 0 {
 			return 0
 		}
+
+		price[i] = depth[0].Price
 	}
 
 	var profit float64
 	switch s.route {
 	case route{0, 0, 1}:
-		profit = amount/price[0]/price[1]*price[2] - amount
+		profit = amount/price[0]/price[1]*price[2] - (amount + (amount * 0.003))
 	case route{0, 1, 1}:
-		profit = amount/price[0]*price[1]*price[2] - amount
+		profit = amount/price[0]*price[1]*price[2] - (amount + (amount * 0.003))
 	case route{1, 0, 0}:
-		profit = amount*price[0]/price[1]/price[2] - amount
+		profit = amount*price[0]/price[1]/price[2] - (amount + (amount * 0.003))
 	case route{1, 1, 0}:
-		profit = amount*price[0]*price[1]/price[2] - amount
+		profit = amount*price[0]*price[1]/price[2] - (amount + (amount * 0.003))
 	}
 
-	profit -= (profit * MAKER_FEE * 3)
 	newAmount := amount + profit
 	perc := (newAmount/amount)*100 - 100
 
-	if perc >= target {
-		log.Printf("%s %-10f (%6.2f%%) %12s %-10s %-12f %12s %-10s %-12f %12s %-10s %-12f\n", s.asset, profit, perc, actions[s.route[0]], pair[0], price[0], actions[s.route[1]], pair[1], price[1], actions[s.route[2]], pair[2], price[2])
+	if perc >= target || verbose {
+		log.Printf("%s %-12f (%6.2f%%) %12s %-10s %-12f %12s %-10s %-12f %12s %-10s %-12f\n", s.asset, profit, perc, actions[s.route[0]], pair[0], price[0], actions[s.route[1]], pair[1], price[1], actions[s.route[2]], pair[2], price[2])
 		return 1
-		//
-		// TODO: send right tradeszize for 1 or all 3
-		//
 	}
 
 	return 0
@@ -225,23 +206,23 @@ func (s set) calcMaxProfit(amount float64) float64 {
 		var profit float64
 		switch s.route {
 		case route{0, 0, 1}:
-			profit = stepAmount/price[0]/price[1]*price[2] - stepAmount
+			profit = stepAmount/price[0]/price[1]*price[2] - (stepAmount + (stepAmount * 0.003))
 		case route{0, 1, 1}:
-			profit = stepAmount/price[0]*price[1]*price[2] - stepAmount
+			profit = stepAmount/price[0]*price[1]*price[2] - (stepAmount + (stepAmount * 0.003))
 		case route{1, 0, 0}:
-			profit = stepAmount*price[0]/price[1]/price[2] - stepAmount
+			profit = stepAmount*price[0]/price[1]/price[2] - (stepAmount + (stepAmount * 0.003))
 		case route{1, 1, 0}:
-			profit = stepAmount*price[0]*price[1]/price[2] - stepAmount
+			profit = stepAmount*price[0]*price[1]/price[2] - (stepAmount + (stepAmount * 0.003))
 		}
 
-		profit -= (profit * MAKER_FEE * 3)
+		// profit -= (profit * MAKER_FEE * 3)
 		profits = append(profits, profitAmount{profit: profit, amount: stepAmount})
 
 		// stepAmount -= (amount / float64(steps))
 		// fmt.Printf("%s\tsaving profit=%.f\t. next stepAmount=%.f\n", s.asset, profit, stepAmount)
 	}
 
-	if len(profits) == 0 {
+	if len(profits) == 0 || price[0] == 0 || price[1] == 0 || price[2] == 0 {
 		// fmt.Printf("%s\tno profits exiting\n", s.asset)
 		return 0
 	}
@@ -258,8 +239,8 @@ func (s set) calcMaxProfit(amount float64) float64 {
 	newAmount := amount + profit
 	perc := (newAmount/amount)*100 - 100
 
-	if perc >= target {
-		log.Printf("%s %-10f (%6.2f%%) %12s %-10s %-12f %12s %-10s %-12f %12s %-10s %-12f\n", s.asset, profit, perc, actions[s.route[0]], pair[0], price[0], actions[s.route[1]], pair[1], price[1], actions[s.route[2]], pair[2], price[2])
+	if perc >= target || verbose {
+		log.Printf("%s %-12f (%6.2f%%) %12s %-10s %-12f %12s %-10s %-12f %12s %-10s %-12f\n", s.asset, profit, perc, actions[s.route[0]], pair[0], price[0], actions[s.route[1]], pair[1], price[1], actions[s.route[2]], pair[2], price[2])
 		return amount
 	}
 	// fmt.Println("=======================================================")

@@ -268,6 +268,7 @@ func main() {
 					// if set.a.Name == "LUNAUSDT" && set.b.Name == "LUNABTC" && set.c.Name == "BTCUSDT" {
 					// 	free := 10000.
 					// 	set.calcMaxProfit(free)
+					// 	// set.calcProfit(free)
 					// }
 
 					for _, asset := range assets {
@@ -289,7 +290,7 @@ func main() {
 							continue
 						}
 						// check is we can profit
-						if tradesize := set.calcProfit(balance.Balances[asset].Free); tradesize >= minimum {
+						if tradesize := set.calcMaxProfit(balance.Balances[asset].Free); tradesize >= minimum {
 							// calc tradesize1
 							// E.SendMarket(set.a.Name, actions[set.route[0]], tradesize1)
 							// // calc tradesize2
