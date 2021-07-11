@@ -144,61 +144,57 @@ type profitAmount struct {
 	amount float64
 }
 
+func (s set) stepCalc(amount float64) float64 {
+	var profits = make([]profitAmount, 0)
+	for stepAmount := amount; stepAmount > 0; stepAmount -= (amount / float64(steps)) {
+
+		if profit, _, _, _ := s.calcRealProfit(stepAmount); profit > 0 {
+			profits = append(profits, profitAmount{profit: profit, amount: stepAmount})
+		}
+	}
+	if len(profits) == 0 {
+		return 0
+	}
+	// sort profits
+	sort.SliceStable(profits, func(i, j int) bool {
+		return profits[i].profit > profits[j].profit
+	})
+	return profits[0].profit
+}
+
 func (s set) calcMaxProfit(amount float64) float64 {
 	var pair = [3]string{s.a.Name, s.b.Name, s.c.Name}
 	var price [3]float64
 
 	var profits = make([]profitAmount, 0)
 
-	// stepAmount := amount
-	// fmt.Printf("%s\tentering loop. %v\n", s.asset, pair)
 	for stepAmount := amount; stepAmount > 0; stepAmount -= (amount / float64(steps)) {
-		// for {
+		nextAmount := stepAmount
 
-		// next:
-
-		// 	if 0 >= stepAmount {
-		// 		// fmt.Printf("%s\tbreak loop 0 > %f\n", s.asset, stepAmount)
-		// 		break
-		// 	}
-
-		// fmt.Println("-------------------------------------------------------")
-		// fmt.Printf("%s\tstepAmount=%f\n", s.asset, stepAmount)
-
-		tempAmount := stepAmount
 		for i, _action := range s.route {
 			book, _ := orderbook.GetBook(pair[i])
-			// fmt.Printf("%s\ti=%d\t%s\ttempAmount=%f\n", s.asset, i, pair[i], tempAmount)
 
 			switch _action {
 			case 0:
 				for _, depth := range book.Asks.Get() {
-					// fmt.Printf("%s\t%s\tdepth.Total=%f\tdepth.Price=%f\tdepth.Amount=%f\ttemp/price=%f\n", s.asset, actions[_action], depth.Total, depth.Price, depth.Amount, (tempAmount / depth.Price))
-					if depth.Total >= (tempAmount / depth.Price) {
-						tempAmount /= depth.Price
+					if depth.Total >= (nextAmount / depth.Price) {
+						nextAmount /= depth.Price
 						price[i] = depth.Price
-						// fmt.Printf("%s\tgot depth %s. tempAmount=%f\n", s.asset, actions[_action], tempAmount)
 						break
 					}
 				}
 			case 1:
 				for _, depth := range book.Bids.Get() {
-					// fmt.Printf("%s\t%s\tdepth.Total=%f\tdepth.Price=%f\tdepth.Amount=%f\ttemp*price=%f\n", s.asset, actions[_action], depth.Total, depth.Price, depth.Amount, (tempAmount * depth.Price))
-					if depth.Total >= tempAmount { //(tempAmount * depth.Price) {
-						tempAmount *= depth.Price
+					if depth.Total >= nextAmount {
+						nextAmount *= depth.Price
 						price[i] = depth.Price
-						// fmt.Printf("%s\tgot depth %s. tempAmount=%f\n", s.asset, actions[_action], tempAmount)
 						break
 					}
 				}
 
 			}
-			// next step if no depth price
 			if price[i] == 0 {
-				// stepAmount -= (amount / float64(steps))
-				// fmt.Printf("%s\tno depth. next stepAmount=%.f\n", s.asset, stepAmount)
 				break
-				// goto next
 			}
 
 		}
@@ -215,15 +211,10 @@ func (s set) calcMaxProfit(amount float64) float64 {
 			profit = stepAmount*price[0]*price[1]/price[2] - (stepAmount + (stepAmount * 0.003))
 		}
 
-		// profit -= (profit * MAKER_FEE * 3)
 		profits = append(profits, profitAmount{profit: profit, amount: stepAmount})
-
-		// stepAmount -= (amount / float64(steps))
-		// fmt.Printf("%s\tsaving profit=%.f\t. next stepAmount=%.f\n", s.asset, profit, stepAmount)
 	}
 
 	if len(profits) == 0 || price[0] == 0 || price[1] == 0 || price[2] == 0 {
-		// fmt.Printf("%s\tno profits exiting\n", s.asset)
 		return 0
 	}
 
@@ -231,8 +222,6 @@ func (s set) calcMaxProfit(amount float64) float64 {
 	sort.SliceStable(profits, func(i, j int) bool {
 		return profits[i].profit > profits[j].profit
 	})
-
-	// fmt.Printf("sorted profit, biggest%.f\t, smallest=%.f\n", profits[0].profit, profits[len(profits)-1].profit)
 
 	profit := profits[0].profit
 	amount = profits[0].amount
@@ -243,10 +232,77 @@ func (s set) calcMaxProfit(amount float64) float64 {
 		log.Printf("%s %-12f (%6.2f%%) %12s %-10s %-12f %12s %-10s %-12f %12s %-10s %-12f\n", s.asset, profit, perc, actions[s.route[0]], pair[0], price[0], actions[s.route[1]], pair[1], price[1], actions[s.route[2]], pair[2], price[2])
 		return amount
 	}
-	// fmt.Println("=======================================================")
 
 	return 0
 
+}
+
+func (s set) calcRealProfit(amount float64) (float64, float64, float64, float64) {
+	var pair = [3]string{s.a.Name, s.b.Name, s.c.Name}
+	var price = [3]float64{0, 0, 0}
+	var _amount [4]float64
+
+	_amount[0] = amount // - (amount * MAKER_FEE)
+	nextAmount := amount
+	for i, _action := range s.route {
+		book, _ := orderbook.GetBook(pair[i])
+
+		switch _action {
+		case 0:
+			for _, depth := range book.Asks.Get() {
+				if depth.Total >= (nextAmount / depth.Price) {
+					price[i] = depth.Price
+
+					nextAmount /= depth.Price
+					nextAmount -= (nextAmount * MAKER_FEE)
+					_amount[i+1] = nextAmount
+					break
+				}
+			}
+		case 1:
+			for _, depth := range book.Bids.Get() {
+				if depth.Total >= nextAmount {
+					price[i] = depth.Price
+
+					nextAmount *= depth.Price
+					nextAmount -= (nextAmount * MAKER_FEE)
+					_amount[i+1] = nextAmount
+					break
+				}
+			}
+		}
+		// exit if we dont have depth price
+		if price[i] == 0 {
+			return 0, 0, 0, 0
+		}
+	}
+
+	// var profit float64
+	// switch s.route {
+	// case route{0, 0, 1}:
+	// 	profit = amount/price[0]/price[1]*price[2] - (amount + (amount * (3 * MAKER_FEE)))
+	// case route{0, 1, 1}:
+	// 	profit = amount/price[0]*price[1]*price[2] - (amount + (amount * (3 * MAKER_FEE)))
+	// case route{1, 0, 0}:
+	// 	profit = amount*price[0]/price[1]/price[2] - (amount + (amount * (3 * MAKER_FEE)))
+	// case route{1, 1, 0}:
+	// 	profit = amount*price[0]*price[1]/price[2] - (amount + (amount * (3 * MAKER_FEE)))
+	// }
+
+	profit := nextAmount - amount
+
+	newAmount := amount + profit
+	perc := (newAmount/amount)*100 - 100
+	if perc >= target {
+		log.Printf("%-6s %-12f (%6.2f%%) %12s %-10s %-12f %12s %-10s %-12f %12s %-10s %-12f\n", s.asset, profit, perc, actions[s.route[0]], pair[0], price[0], actions[s.route[1]], pair[1], price[1], actions[s.route[2]], pair[2], price[2])
+		return profit, _amount[0], _amount[1], _amount[2]
+	}
+
+	return 0, 0, 0, 0
+}
+
+func Fee(f float64) float64 {
+	return f - (f * MAKER_FEE)
 }
 
 func (s *bbs) Sets(curr string) (Sets sets) {

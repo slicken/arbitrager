@@ -277,7 +277,7 @@ func main() {
 						}
 						if verbose {
 							free := 10000.
-							set.calcMaxProfit(free)
+							set.calcRealProfit(free)
 							continue
 						}
 						//check if balance is worth more than mimimum
@@ -290,13 +290,13 @@ func main() {
 							continue
 						}
 						// check is we can profit
-						if tradesize := set.calcMaxProfit(balance.Balances[asset].Free); tradesize >= minimum {
-							// calc tradesize1
-							// E.SendMarket(set.a.Name, actions[set.route[0]], tradesize1)
-							// // calc tradesize2
-							// E.SendMarket(set.b.Name, actions[set.route[1]], tradesize2)
-							// // calc tradesize3
-							// E.SendMarket(set.c.Name, actions[set.route[2]], tradesize3)
+						if _, amount1, amount2, amount3 := set.calcRealProfit(balance.Balances[asset].Free); amount1 != 0 && amount2 != 0 && amount3 != 0 {
+							_ = amount1
+							_ = amount2
+							_ = amount3
+							// E.SendMarket(set.a.Name, actions[set.route[0]], amount1)
+							// E.SendMarket(set.b.Name, actions[set.route[1]], amount2)
+							// E.SendMarket(set.c.Name, actions[set.route[2]], amount3)
 						}
 					}
 				}
