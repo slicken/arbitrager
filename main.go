@@ -29,6 +29,7 @@ var (
 	except  []string
 	all     = false
 	target  = 0.5
+	steps   = 1
 	minimum = 100.
 	level   = ""
 	cpu     = 0
@@ -42,16 +43,17 @@ var (
 )
 
 func appInfo() {
-	fmt.Println(`Usage: ./` + appName + ` [-a <assets>|--all] [-e <assets>] [-t <percent>] [-m <USD>]
+	fmt.Println(`Usage: ./` + appName + ` [-a <assets>|--all] [-e <assets>] [-t <percent>] [-s <int>] [-m <USD>]
              [--100] [--CPU <cores>] [--verbose]
 Arguments
   -a, --asset   BTC,ETH,BNB              only thease assets. TIP use quote assets
       --all                              all assets with balance
   -e, --except  DOT,USDC                 except thease assets
   -t, --target  1.0                      target percent             (default is 0.5)
+  -s, --steps   4                        chop balance in N times    (default is 1  ) 
   -m, --minimum 1000                     mimimum balance (in USD)   (default is 100)
       --100                              fetch data every 100ms     (default 1000ms)
-      --CPU 2                            limit cpu cores            (default is max)
+      --CPU     2                        limit cpu cores            (default is max)
       --verbose
                                       -- slk prod 2021 --`)
 	os.Exit(0)
@@ -102,6 +104,17 @@ func main() {
 				}
 				target = tmp
 				log.Println("target percent", target)
+
+			case "-s", "--steps":
+				if i+3 > len(os.Args) {
+					appInfo()
+				}
+				tmp, err := strconv.Atoi(os.Args[i+2])
+				if err != nil {
+					appInfo()
+				}
+				steps = tmp
+				log.Printf("chop balance %d times (balance -= (balance/steps)\n", steps)
 
 			case "-m", "--minimum":
 				if i+3 > len(os.Args) {
@@ -214,11 +227,8 @@ func main() {
 		}
 	}
 
-	//
-	// TODO: limmit pairs to exchange maximum
-	//       what is Binance, Kucoin, FTX maximum ws
-	//
-	pairs = pairs[:1024]
+	pairs = pairs[:1000]
+	// pairs = []string{"BTCUSDT", "DOTBTC", "DOTUSDT", "LUNAUSDT", "LUNABTC"}
 	log.Printf("%s total: %d\n", pairs, len(pairs))
 
 	// handle ws streams
@@ -251,19 +261,22 @@ func main() {
 				}
 
 				// loop throu all possible routes
-				pair, err := E.Pair(resp.Symbol)
-				if err != nil {
-					continue
-				}
+				pair, _ := E.Pair(resp.Symbol)
 				sets := SetsMap[pair]
 				for _, set := range sets {
+
+					// if set.a.Name == "LUNAUSDT" && set.b.Name == "LUNABTC" && set.c.Name == "BTCUSDT" {
+					// 	free := 10000.
+					// 	set.calcMaxProfit(free)
+					// }
+
 					for _, asset := range assets {
 						if asset != set.asset {
 							continue
 						}
 						if verbose {
 							free := 10000.
-							set.calcProfit(free)
+							set.calcMaxProfit(free)
 							continue
 						}
 						//check if balance is worth more than mimimum

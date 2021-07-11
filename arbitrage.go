@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"sort"
 	"strings"
@@ -14,7 +13,7 @@ import (
 type action byte
 
 const (
-	MAKER_FEE        = 0.001
+	MAKER_FEE        = 1.001
 	buy       action = 0
 	sell      action = 1
 )
@@ -116,7 +115,7 @@ func (s set) calcProfit(amount float64) float64 {
 
 		if verbose {
 			if len(depth) == 0 {
-				return 0.
+				return 0
 			}
 			price[i] = depth[0].Price
 		}
@@ -128,7 +127,7 @@ func (s set) calcProfit(amount float64) float64 {
 			}
 		}
 		if price[i] == 0 {
-			return 0.
+			return 0
 		}
 	}
 
@@ -156,7 +155,7 @@ func (s set) calcProfit(amount float64) float64 {
 		//
 	}
 
-	return 0.
+	return 0
 }
 
 type profitAmount struct {
@@ -170,38 +169,44 @@ func (s set) calcMaxProfit(amount float64) float64 {
 
 	var profits = make([]profitAmount, 0)
 
-	stepAmount := amount
-	for stepAmount > 0 {
+	// stepAmount := amount
+	// fmt.Printf("%s\tentering loop. %v\n", s.asset, pair)
+	for stepAmount := amount; stepAmount > 0; stepAmount -= (amount / float64(steps)) {
+		// for {
 
-	next:
+		// next:
 
-		fmt.Printf("stepAmount=%.f\n", stepAmount)
+		// 	if 0 >= stepAmount {
+		// 		// fmt.Printf("%s\tbreak loop 0 > %f\n", s.asset, stepAmount)
+		// 		break
+		// 	}
+
+		// fmt.Println("-------------------------------------------------------")
+		// fmt.Printf("%s\tstepAmount=%f\n", s.asset, stepAmount)
 
 		tempAmount := stepAmount
 		for i, _action := range s.route {
 			book, _ := orderbook.GetBook(pair[i])
-
-			// 10000usdt
-			// buy 	eth 	10000/2500 	= 4
-			// buy 	dot		4/0.0078	= 512
-			// sell dot 	512*15.7	= 8038  usdt
-
-			//				10000/2500/0.078 511
+			// fmt.Printf("%s\ti=%d\t%s\ttempAmount=%f\n", s.asset, i, pair[i], tempAmount)
 
 			switch _action {
 			case 0:
 				for _, depth := range book.Asks.Get() {
-					if depth.Total >= tempAmount/depth.Price {
+					// fmt.Printf("%s\t%s\tdepth.Total=%f\tdepth.Price=%f\tdepth.Amount=%f\ttemp/price=%f\n", s.asset, actions[_action], depth.Total, depth.Price, depth.Amount, (tempAmount / depth.Price))
+					if depth.Total >= (tempAmount / depth.Price) {
 						tempAmount /= depth.Price
 						price[i] = depth.Price
+						// fmt.Printf("%s\tgot depth %s. tempAmount=%f\n", s.asset, actions[_action], tempAmount)
 						break
 					}
 				}
 			case 1:
 				for _, depth := range book.Bids.Get() {
-					if depth.Total >= tempAmount*depth.Price {
+					// fmt.Printf("%s\t%s\tdepth.Total=%f\tdepth.Price=%f\tdepth.Amount=%f\ttemp*price=%f\n", s.asset, actions[_action], depth.Total, depth.Price, depth.Amount, (tempAmount * depth.Price))
+					if depth.Total >= tempAmount { //(tempAmount * depth.Price) {
 						tempAmount *= depth.Price
 						price[i] = depth.Price
+						// fmt.Printf("%s\tgot depth %s. tempAmount=%f\n", s.asset, actions[_action], tempAmount)
 						break
 					}
 				}
@@ -209,8 +214,10 @@ func (s set) calcMaxProfit(amount float64) float64 {
 			}
 			// next step if no depth price
 			if price[i] == 0 {
-				stepAmount -= (amount / 10)
-				goto next
+				// stepAmount -= (amount / float64(steps))
+				// fmt.Printf("%s\tno depth. next stepAmount=%.f\n", s.asset, stepAmount)
+				break
+				// goto next
 			}
 
 		}
@@ -230,13 +237,21 @@ func (s set) calcMaxProfit(amount float64) float64 {
 		profit -= (profit * MAKER_FEE * 3)
 		profits = append(profits, profitAmount{profit: profit, amount: stepAmount})
 
-		stepAmount -= (amount / 10)
+		// stepAmount -= (amount / float64(steps))
+		// fmt.Printf("%s\tsaving profit=%.f\t. next stepAmount=%.f\n", s.asset, profit, stepAmount)
+	}
+
+	if len(profits) == 0 {
+		// fmt.Printf("%s\tno profits exiting\n", s.asset)
+		return 0
 	}
 
 	// sort biggest profit first
 	sort.SliceStable(profits, func(i, j int) bool {
 		return profits[i].profit > profits[j].profit
 	})
+
+	// fmt.Printf("sorted profit, biggest%.f\t, smallest=%.f\n", profits[0].profit, profits[len(profits)-1].profit)
 
 	profit := profits[0].profit
 	amount = profits[0].amount
@@ -247,8 +262,9 @@ func (s set) calcMaxProfit(amount float64) float64 {
 		log.Printf("%s %-10f (%6.2f%%) %12s %-10s %-12f %12s %-10s %-12f %12s %-10s %-12f\n", s.asset, profit, perc, actions[s.route[0]], pair[0], price[0], actions[s.route[1]], pair[1], price[1], actions[s.route[2]], pair[2], price[2])
 		return amount
 	}
+	// fmt.Println("=======================================================")
 
-	return 0.
+	return 0
 
 }
 
