@@ -55,7 +55,6 @@ func (r *Requester) Do(req *http.Request, method, path string, auth bool, result
 		log.Printf("%s response: %s", r.Name, string(content[:]))
 	}
 	if result != nil {
-		// return JSONDecode(content, result)
 		return json.Unmarshal(content, result)
 	}
 

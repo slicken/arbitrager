@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -30,7 +31,7 @@ var (
 	all     = false
 	target  = 0.5
 	steps   = 1
-	minimum = 100.
+	minimum = 200.
 	level   = ""
 	cpu     = 0
 	verbose = false
@@ -40,22 +41,25 @@ var (
 	tickers    map[string]float64
 	shutdown   = make(chan bool)
 	_, appName = filepath.Split(os.Args[0])
+
+	lock = make(chan bool, 1)
 )
 
 func appInfo() {
-	fmt.Println(`Usage: ./` + appName + ` [-a <assets>|--all] [-e <assets>] [-t <percent>] [-s <int>] [-m <USD>]
+	fmt.Println(`Usage: ./` + appName + ` [-a <assets>|--all] [-e <assets>] [-t <percent>] [-n <uint>] [-m <USD>]
              [--100] [--CPU <cores>] [--verbose]
-Arguments
-  -a, --asset   BTC,ETH,BNB              only thease assets. TIP use quote assets
-      --all                              all assets with balance
-  -e, --except  DOT,USDC                 except thease assets
-  -t, --target  1.0                      target percent             (default is 0.5)
-  -s, --steps   4                        chop balance in N times    (default is 1  ) 
-  -m, --minimum 1000                     mimimum balance (in USD)   (default is 100)
-      --100                              fetch data every 100ms     (default 1000ms)
-      --CPU     2                        limit cpu cores            (default is max)
+Arguments        Examples
+  -a, --asset    BTC,ETH,BNB              only thease assets. TIP use quote assets
+      --all                               all assets with balance
+  -e, --except   DOT,USDC                 except thease assets
+  -t, --target   1.0                      target percent             (default 0.5)
+  -n, --decrease 4                        decrease balance N times   (default 1  )
+  -m, --minimum  500                      mimimum balance (in USD)   (default 200)
+      --100                               fetch data every 100ms     (default 1s )
+      --CPU      2                        limit cpu cores            (default max)
       --verbose
-                                      -- slk prod 2021 --`)
+  -h  --help
+                                       -- slk prod 2021 --`)
 	os.Exit(0)
 }
 
@@ -105,7 +109,7 @@ func main() {
 				target = tmp
 				log.Println("target percent", target)
 
-			case "-s", "--steps":
+			case "-n", "--decrease":
 				if i+3 > len(os.Args) {
 					appInfo()
 				}
@@ -114,7 +118,7 @@ func main() {
 					appInfo()
 				}
 				steps = tmp
-				log.Printf("chop balance %d times (balance -= (balance/steps)\n", steps)
+				log.Printf("decrease balance %d times\n", steps)
 
 			case "-m", "--minimum":
 				if i+3 > len(os.Args) {
@@ -142,6 +146,9 @@ func main() {
 				cpu = tmp
 				log.Println("cpu cores limited to", cpu)
 
+			case "-h", "--help", "help":
+				appInfo()
+
 			case "--verbose":
 				verbose = true
 				log.Println("verbose enabled")
@@ -151,7 +158,11 @@ func main() {
 			}
 		}
 	}
+	if !all && len(assets) == 0 {
+		appInfo()
+	}
 
+	// HANDLE INTERRUPT SIGNAL
 	HandleInterrupt()
 
 	// LOG TO FILE
@@ -189,6 +200,10 @@ func main() {
 		}
 	}()
 
+	// TODO:
+	// balance updater
+
+	time.Sleep(time.Second)
 	if all {
 		if verbose {
 			for asset := range MapAssets() {
@@ -197,7 +212,7 @@ func main() {
 		} else {
 			for asset := range balance.Balances {
 				//check if balance is worth more than mimimum
-				free := balance.Balances[asset].Free
+				free := balance.Balances[asset].Free * 0.999
 				_pair, err := E.Pair(asset + "USDT")
 				if err == nil {
 					free *= tickers[_pair.Name]
@@ -217,6 +232,8 @@ func main() {
 		}
 	}
 
+	log.Println("assets", assets)
+
 	mapSets()
 
 	// create pairs to subcribe to
@@ -227,9 +244,10 @@ func main() {
 		}
 	}
 
-	pairs = pairs[:1000]
 	// pairs = []string{"BTCUSDT", "DOTBTC", "DOTUSDT", "LUNAUSDT", "LUNABTC"}
-	log.Printf("%s total: %d\n", pairs, len(pairs))
+	// log.Printf("%s total: %d\n", pairs, len(pairs))
+	pairs = pairs[:1000]
+	log.Printf("connecting to %d pairs\n", len(pairs))
 
 	// handle ws streams
 	var handlarC = make(chan []byte, len(pairs))
@@ -263,25 +281,15 @@ func main() {
 				// loop throu all possible routes
 				pair, _ := E.Pair(resp.Symbol)
 				sets := SetsMap[pair]
+
+				// go func() ==>
 				for _, set := range sets {
-
-					// if set.a.Name == "LUNAUSDT" && set.b.Name == "LUNABTC" && set.c.Name == "BTCUSDT" {
-					// 	free := 10000.
-					// 	set.calcMaxProfit(free)
-					// 	// set.calcProfit(free)
-					// }
-
 					for _, asset := range assets {
 						if asset != set.asset {
 							continue
 						}
-						if verbose {
-							free := 10000.
-							set.calcRealProfit(free)
-							continue
-						}
-						//check if balance is worth more than mimimum
-						free := balance.Balances[asset].Free
+						// check if balance is worth more than mimimum
+						free := balance.Balances[asset].Free * 0.999
 						_pair, err := E.Pair(asset + "USDT")
 						if err == nil {
 							free *= tickers[_pair.Name]
@@ -289,14 +297,60 @@ func main() {
 						if minimum > free {
 							continue
 						}
-						// check is we can profit
-						if _, amount1, amount2, amount3 := set.calcRealProfit(balance.Balances[asset].Free); amount1 != 0 && amount2 != 0 && amount3 != 0 {
-							_ = amount1
-							_ = amount2
-							_ = amount3
-							// E.SendMarket(set.a.Name, actions[set.route[0]], amount1)
-							// E.SendMarket(set.b.Name, actions[set.route[1]], amount2)
-							// E.SendMarket(set.c.Name, actions[set.route[2]], amount3)
+
+						// free := 300.
+
+						// check is we can profit                           balance.Balances[asset].Free
+						if amount1, amount2, amount3 := set.calcStepProfits(balance.Balances[asset].Free * 0.999); amount1 != 0 && amount2 != 0 && amount3 != 0 {
+							// _ = amount1
+							// _ = amount2
+							// _ = amount3
+
+							var err error
+
+							log.Println(set.a.Name, actions[set.route[0]], amount1)
+							minAmount := amount1 - (amount1 * MAKER_FEE)
+							for amount1 > minAmount {
+								if err = E.SendMarket(set.a.Name, actions[set.route[0]], amount1); err != nil {
+									// dont decrease if not balance error
+									amount1 -= (amount1 * 0.0001)
+									time.Sleep(100 * time.Millisecond)
+								}
+								break
+							}
+							if err != nil {
+								log.Fatalln("err1", err)
+							}
+
+							log.Println(set.b.Name, actions[set.route[1]], amount2)
+							minAmount = amount2 - (amount2 * MAKER_FEE)
+							for amount2 > minAmount {
+								if err = E.SendMarket(set.b.Name, actions[set.route[1]], amount2); err != nil {
+									amount2 -= (amount2 * 0.0001)
+									time.Sleep(100 * time.Millisecond)
+								}
+								break
+							}
+							if err != nil {
+								log.Fatalln("err2", err)
+							}
+
+							log.Println(set.c.Name, actions[set.route[2]], amount3)
+							minAmount = amount3 - (amount3 * MAKER_FEE)
+							for amount3 > minAmount {
+								if err = E.SendMarket(set.c.Name, actions[set.route[2]], amount3); err != nil {
+									amount3 -= (amount3 * 0.0001)
+									time.Sleep(100 * time.Millisecond)
+								}
+								break
+							}
+							if err != nil {
+								log.Fatalln("err3", err)
+							}
+
+							time.Sleep(5 * time.Second)
+
+							close(shutdown)
 						}
 					}
 				}
@@ -312,6 +366,23 @@ func main() {
 	}
 
 	<-shutdown
+}
+
+func reDo(fn func() error, amount float64) error {
+	minAmount := amount
+	minAmount -= (amount * MAKER_FEE)
+
+	var err error
+	for amount < minAmount {
+		if err = fn(); err != nil {
+			amount -= (amount * 0.0001)
+			time.Sleep(10 * time.Millisecond)
+		}
+		// success
+		return nil
+	}
+	// failed
+	return err
 }
 
 func subscribePair(name string, handler chan<- []byte) {
@@ -342,12 +413,14 @@ restart:
 
 		_, message, err := c.ReadMessage()
 		if err != nil {
-			if strings.Contains(err.Error(), "closed") {
-				log.Println("ws closed. reconnecting", name)
-				c.Close()
-				goto restart
-			}
-			log.Println("ws error:", err)
+			log.Println("ws closed. reconnecting", name)
+
+			lock <- true
+			orderbook.Delete(name)
+			<-lock
+
+			c.Close()
+			goto restart
 		}
 
 		handler <- message
@@ -481,4 +554,17 @@ func LogToFile(tag string) {
 	}
 	log.SetOutput(io.MultiWriter(os.Stderr, logFile))
 	log.Printf("successfully created logfile %q.\n", logFile.Name())
+}
+
+// atomic
+const free = int32(0)
+
+var state *int32
+
+func Spinlock(f func()) {
+	for !atomic.CompareAndSwapInt32(state, free, 1) {
+		runtime.Gosched()
+	}
+	f()
+	defer atomic.StoreInt32(state, free)
 }

@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-const depth = 200
+const DEPTH = 200
 
 // Orderbook holds symbol books
 var Orderbook = make(map[string]*Book)
@@ -30,8 +30,8 @@ type Item struct {
 }
 
 func newBook(pair string) *Book {
-	var asks = make(asks, 200)
-	var bids = make(bids, 200)
+	var asks = make(asks, DEPTH)
+	var bids = make(bids, DEPTH)
 
 	book := new(Book)
 	book.Name = pair
@@ -55,6 +55,25 @@ func (b *Book) Pair() string {
 	return b.Name
 }
 
+// Limit depth of Bids and Asks
+func (b *Book) Limit() {
+	if len(b.Asks) > DEPTH {
+		for _, v := range b.Asks.Get()[DEPTH:] {
+			b.Asks.Add(v.Price, 0)
+		}
+	}
+	if len(b.Bids) > DEPTH {
+		for _, v := range b.Bids.Get()[DEPTH:] {
+			b.Bids.Add(v.Price, 0)
+		}
+	}
+}
+
+// Delete book
+func Delete(name string) {
+	delete(Orderbook, name)
+}
+
 func (l *asks) Add(price, amount float64) {
 	if amount == 0 {
 		delete(*l, price)
@@ -71,21 +90,23 @@ func (l *bids) Add(price, amount float64) {
 	}
 }
 
-// func (b *Book) Add(price, amount float64, bid bool) {
-// 	var o orders
-// 	if bid {
-// 		o = orders(b.Bids)
-// 	} else {
-// 		o = orders(b.Asks)
-// 	}
-
-// 	if amount == 0 {
-// 		delete(o, price)
-// 	} else {
-// 		o[price] = amount
-// 	}
-// 	b.LastUpdated = time.Now()
-// }
+func (b *Book) AddItem(price, amount float64, bid bool) {
+	if !bid {
+		if amount == 0 {
+			delete(b.Asks, price)
+		} else {
+			b.Asks[price] = amount
+		}
+	} else {
+		if amount == 0 {
+			delete(b.Bids, price)
+		} else {
+			b.Bids[price] = amount
+		}
+	}
+	// b.Limit()
+	b.LastUpdated = time.Now()
+}
 
 // func (v orders) Get(bids bool) (items []Item) {
 // 	keys := make([]float64, 0, len(v))
