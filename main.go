@@ -294,7 +294,7 @@ func main() {
 							continue
 						}
 						// check if balance is worth more than mimimum
-						free := balance.Balances[asset].Free * 0.999
+						free := balance.Balances[asset].Free * 0.9
 						_pair, err := E.Pair(asset + "USDT")
 						if err == nil {
 							free *= tickers[_pair.Name]
@@ -303,7 +303,7 @@ func main() {
 							continue
 						}
 						// does traderoute make profit
-						if amount1, amount2, amount3 := set.calcStepProfits(balance.Balances[asset].Free * 0.999); amount1 != 0 && amount2 != 0 && amount3 != 0 {
+						if amount1, amount2, amount3 := set.calcStepProfits(balance.Balances[asset].Free * 0.9); amount1 != 0 && amount2 != 0 && amount3 != 0 {
 
 							var err error
 							var _amount = [3]float64{amount1, amount2, amount3}
@@ -313,22 +313,46 @@ func main() {
 								minAmount := _amount[i] - (_amount[i] * (3 * MAKER_FEE))
 								for _amount[i] > minAmount {
 
-									log.Printf("%-6s %-12s %-12f\n", actions[_action], _pair[i], _amount[i])
-									if err = E.SendMarket(_pair[i], actions[_action], _amount[i]); err != nil {
-										if containList(err.Error(), []string{"balance", "quantity"}) {
-											// try decrease amount a bit
-											_amount[i] -= (_amount[i] * 0.0002)
-										}
-										time.Sleep(100 * time.Millisecond)
-										log.Println(err)
-									} else {
+									log.Printf("-->   %-6s %-12f %-12s\n", actions[_action], _amount[i], _pair[i])
+									err = E.SendMarket(_pair[i], actions[_action], _amount[i])
+									if err == nil {
 										break
 									}
+									// try decrease amount a bit
+									if containList(err.Error(), []string{"balance", "quantity"}) {
+										_amount[i] -= (_amount[i] * 0.0002)
+									} else {
+										// if we havent made any trades then we can pass and look for new oppertunities
+										if i == 0 {
+											log.Println("error:", err)
+											lastTrade = time.Now().Add(time.Minute)
+											return
+										}
+									}
+									log.Println("error:", err)
+									time.Sleep(50 * time.Millisecond)
 								}
+								// if we still have error - close program
 								if err != nil {
 									log.Fatalln(err)
 								}
 
+							}
+							// update balance
+							tries := 0
+							delay := 100 * time.Microsecond
+							log.Println("updating balance...")
+							for 5 > tries {
+								if err = E.UpdateBalance(); err == nil {
+									break
+								}
+								log.Println("error:", err)
+								time.Sleep(delay)
+								delay *= 3
+								tries++
+							}
+							if err != nil {
+								log.Fatalln(err)
 							}
 							// success! dont look for new trades for x minutes
 							lastTrade = time.Now().Add(time.Minute)
