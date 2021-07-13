@@ -201,7 +201,7 @@ func pairsByBase(e exchanges.I, base, except string) (pairs []currencie.Pair) {
 // 	newAmount := amount + profit
 // 	perc := (newAmount/amount)*100 - 100
 // 	if perc >= target {
-// 		log.Printf("%-6s %-12f --> %-12f (%5.2f%%) %8s %-12s %-12f %8s %-12s %-12f %8s %-12s %-12f\n", s.asset, nextAmount, profit, perc, actions[s.route[0]], pair[0], price[0], actions[s.route[1]], pair[1], price[1], actions[s.route[2]], pair[2], price[2])
+// 		log.Printf("%-6s %-12f  -->  %-12f (%5.2f%%) %8s %-12s %-12f %8s %-12s %-12f %8s %-12s %-12f\n", s.asset, nextAmount, profit, perc, actions[s.route[0]], pair[0], price[0], actions[s.route[1]], pair[1], price[1], actions[s.route[2]], pair[2], price[2])
 
 // 		return profit, _amount[0], _amount[1], _amount[2]
 // 	}
@@ -427,17 +427,12 @@ func (s set) calcStepProfits(amount float64) (float64, float64, float64) {
 		return profits[i].profit > profits[j].profit
 	})
 
-	profit := profits[0].next3 - profits[0].amount
-	perc := ((profits[0].amount+profit)/profits[0].amount)*100 - 100
+	perc := ((profits[0].amount+profits[0].profit)/profits[0].amount)*100 - 100
 	if perc < target {
 		return 0, 0, 0
 	}
 
-	log.Printf("%-6s %-12f   -->   %-12f (%5.2f%%) %8s %-12s %8s %-12s %8s %-12s\n", s.asset, profits[0].amount, profit, perc, actions[s.route[0]], s.a.Name, actions[s.route[1]], s.b.Name, actions[s.route[2]], s.c.Name)
-
-	profits[0].next1 += (profits[0].next1 * MAKER_FEE)
-	profits[0].next2 += (profits[0].next2 * MAKER_FEE)
-	profits[0].next3 += (profits[0].next3 * MAKER_FEE)
+	log.Printf("%-6s %-12f   -->   %-12f (%5.2f%%) %8s %-12s %8s %-12s %8s %-12s\n", s.asset, profits[0].amount, profits[0].profit, perc, actions[s.route[0]], s.a.Name, actions[s.route[1]], s.b.Name, actions[s.route[2]], s.c.Name)
 	return profits[0].next1, profits[0].next2, profits[0].next3
 }
 
@@ -450,26 +445,40 @@ func (s set) calcDepthProfits(amount float64) (float64, float64, float64, float6
 	for i, _action := range s.route {
 		book, _ := orderbook.GetBook(pair[i])
 
+		// 		action	pair			price			[]next			nextAmount		correct
+		// loop 				300
+		// 	0	0BUY	PSGUSDT		/	16.543000	=	18,134558424	18,116423865	18,134558424
+		// 	1	1SELL	PSGBTC      *	0.000518	=	18,116423865	0,009374923		18,116423865
+		// 	2	1SELL	BTCUSDT     *	32498.63000	=	304,672162114	304,367489952	0,009374923
+		//						300
+		// 	0	0BUY	BTCUSDT		/	32498.63000	=	0,009231158		0,009221927		0,009231158
+		// 	1	1BUY	PSGBTC      /	0.000518	=	17,802948266	17,785145317	17,802948266
+		// 	2	1SELL	PSGUSDT     *	16.543000	=	17,785145317	293,92543932	17,785145317
+
 		switch _action {
+		// buy
 		case 0:
 			for _, depth := range book.Asks.Get() {
 				if depth.Total >= (nextAmount / depth.Price) {
 					price[i] = depth.Price
-
 					nextAmount /= depth.Price
-					nextAmount -= (nextAmount * MAKER_FEE)
+
 					next[i] = nextAmount
+
+					nextAmount -= (nextAmount * MAKER_FEE)
 					break
 				}
 			}
+		// sell
 		case 1:
 			for _, depth := range book.Bids.Get() {
 				if depth.Total >= nextAmount {
 					price[i] = depth.Price
-
 					nextAmount *= depth.Price
+
+					next[i] = nextAmount / price[i]
+
 					nextAmount -= (nextAmount * MAKER_FEE)
-					next[i] = nextAmount
 					break
 				}
 			}
@@ -482,5 +491,10 @@ func (s set) calcDepthProfits(amount float64) (float64, float64, float64, float6
 	if 0 >= profit {
 		return 0, 0, 0, 0
 	}
+	if verbose {
+		log.Printf("%-6s %-12f   -->   %-12f (%5.2f%%) %8s %-12s %-12f %8s %-12s %-12f %8s %-12s %-12f\n",
+			s.asset, amount, profit, ((amount+profit)/amount)*100-100, actions[s.route[0]], pair[0], price[0], actions[s.route[1]], pair[1], price[1], actions[s.route[2]], pair[2], price[2])
+	}
+
 	return profit, next[0], next[1], next[2]
 }

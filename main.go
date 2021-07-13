@@ -42,7 +42,8 @@ var (
 	shutdown   = make(chan bool)
 	_, appName = filepath.Split(os.Args[0])
 
-	lock = make(chan bool, 1)
+	lock      = make(chan bool, 1)
+	lastTrade = time.Now().Add(10 * time.Minute)
 )
 
 func appInfo() {
@@ -85,7 +86,7 @@ func main() {
 					appInfo()
 				}
 				assets = Split(os.Args[i+2])
-				log.Println("arbitraging", assets)
+				// log.Println("arbitraging", assets)
 
 			case "--all":
 				all = true
@@ -152,7 +153,6 @@ func main() {
 			case "--verbose":
 				verbose = true
 				log.Println("verbose enabled")
-				log.Println("10,000 USDT test account")
 
 			default:
 			}
@@ -243,11 +243,9 @@ func main() {
 			pairs = append(pairs, fn.Sets(a).List()...)
 		}
 	}
-
-	// pairs = []string{"BTCUSDT", "DOTBTC", "DOTUSDT", "LUNAUSDT", "LUNABTC"}
 	// log.Printf("%s total: %d\n", pairs, len(pairs))
 	pairs = pairs[:1000]
-	log.Printf("connecting to %d pairs\n", len(pairs))
+	log.Printf("connecting to %d pairs...\n", len(pairs))
 
 	// handle ws streams
 	var handlarC = make(chan []byte, len(pairs))
@@ -282,7 +280,14 @@ func main() {
 				pair, _ := E.Pair(resp.Symbol)
 				sets := SetsMap[pair]
 
-				// go func() ==>
+				// to early =
+				if time.Now().Before(lastTrade) {
+					continue
+				}
+				// TODO:
+				// go func() ==> make it concurrent here
+				// spinlock or lockless @ ws read part
+				//
 				for _, set := range sets {
 					for _, asset := range assets {
 						if asset != set.asset {
@@ -297,60 +302,36 @@ func main() {
 						if minimum > free {
 							continue
 						}
-
-						// free := 300.
-
-						// check is we can profit                           balance.Balances[asset].Free
+						// does traderoute make profit
 						if amount1, amount2, amount3 := set.calcStepProfits(balance.Balances[asset].Free * 0.999); amount1 != 0 && amount2 != 0 && amount3 != 0 {
-							// _ = amount1
-							// _ = amount2
-							// _ = amount3
 
 							var err error
+							var _amount = [3]float64{amount1, amount2, amount3}
+							var _pair = [3]string{set.a.Name, set.b.Name, set.c.Name}
+							for i, _action := range set.route {
 
-							log.Println(set.a.Name, actions[set.route[0]], amount1)
-							minAmount := amount1 - (amount1 * MAKER_FEE)
-							for amount1 > minAmount {
-								if err = E.SendMarket(set.a.Name, actions[set.route[0]], amount1); err != nil {
-									// dont decrease if not balance error
-									amount1 -= (amount1 * 0.0001)
-									time.Sleep(100 * time.Millisecond)
+								minAmount := _amount[i] - (_amount[i] * (3 * MAKER_FEE))
+								for _amount[i] > minAmount {
+
+									log.Printf("%-6s %-12s %-12f\n", actions[_action], _pair[i], _amount[i])
+									if err = E.SendMarket(_pair[i], actions[_action], _amount[i]); err != nil {
+										if containList(err.Error(), []string{"balance", "quantity"}) {
+											// try decrease amount a bit
+											_amount[i] -= (_amount[i] * 0.0002)
+										}
+										time.Sleep(100 * time.Millisecond)
+										log.Println(err)
+									} else {
+										break
+									}
 								}
-								break
-							}
-							if err != nil {
-								log.Fatalln("err1", err)
-							}
-
-							log.Println(set.b.Name, actions[set.route[1]], amount2)
-							minAmount = amount2 - (amount2 * MAKER_FEE)
-							for amount2 > minAmount {
-								if err = E.SendMarket(set.b.Name, actions[set.route[1]], amount2); err != nil {
-									amount2 -= (amount2 * 0.0001)
-									time.Sleep(100 * time.Millisecond)
+								if err != nil {
+									log.Fatalln(err)
 								}
-								break
-							}
-							if err != nil {
-								log.Fatalln("err2", err)
-							}
 
-							log.Println(set.c.Name, actions[set.route[2]], amount3)
-							minAmount = amount3 - (amount3 * MAKER_FEE)
-							for amount3 > minAmount {
-								if err = E.SendMarket(set.c.Name, actions[set.route[2]], amount3); err != nil {
-									amount3 -= (amount3 * 0.0001)
-									time.Sleep(100 * time.Millisecond)
-								}
-								break
 							}
-							if err != nil {
-								log.Fatalln("err3", err)
-							}
-
-							time.Sleep(5 * time.Second)
-
-							close(shutdown)
+							// success! dont look for new trades for x minutes
+							lastTrade = time.Now().Add(time.Minute)
 						}
 					}
 				}
@@ -366,23 +347,6 @@ func main() {
 	}
 
 	<-shutdown
-}
-
-func reDo(fn func() error, amount float64) error {
-	minAmount := amount
-	minAmount -= (amount * MAKER_FEE)
-
-	var err error
-	for amount < minAmount {
-		if err = fn(); err != nil {
-			amount -= (amount * 0.0001)
-			time.Sleep(10 * time.Millisecond)
-		}
-		// success
-		return nil
-	}
-	// failed
-	return err
 }
 
 func subscribePair(name string, handler chan<- []byte) {
@@ -567,4 +531,41 @@ func Spinlock(f func()) {
 	}
 	f()
 	defer atomic.StoreInt32(state, free)
+}
+
+func retryOrder(amount float64, attempts int, fn func() error) error {
+	min := amount
+	min -= (amount * MAKER_FEE)
+	n := 0
+
+	var err error
+	for amount < min {
+
+		err = fn()
+		if err == nil {
+			// success
+			return nil
+		}
+
+		if strings.Contains(err.Error(), "balance") {
+			amount -= (amount * 0.0002)
+		} else {
+			n++
+		}
+		if n > attempts {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	// failed
+	return err
+}
+
+func containList(str string, list []string) bool {
+	for _, s := range list {
+		if strings.Contains(str, s) {
+			return true
+		}
+	}
+	return false
 }
