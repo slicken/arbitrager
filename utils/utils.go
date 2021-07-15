@@ -2,9 +2,14 @@ package utils
 
 import (
 	"fmt"
+	"io"
+	"log"
 	"math"
+	"os"
+	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Round helper for RoundPlus
@@ -36,4 +41,24 @@ func CountDecimal(v float64) int {
 
 func TypeName(v interface{}) string {
 	return fmt.Sprintf("%T", v)[6:]
+}
+
+// LogToFile ...
+func LogToFile(tag string) {
+	if tag != "" {
+		tag = tag + "_"
+	}
+	logName := tag + time.Now().Format("20060102") + ".log"
+	logFile, err := os.Create(logName)
+	if err != nil {
+		log.Fatalf("could not create %q: %v", logFile.Name(), err)
+	}
+	log.SetOutput(io.MultiWriter(os.Stderr, logFile))
+	log.Printf("logging to %q\n", logFile.Name())
+}
+
+func cls() {
+	cls := exec.Command("clear")
+	cls.Stdout = os.Stdout
+	cls.Run()
 }
