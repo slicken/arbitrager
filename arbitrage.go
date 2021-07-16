@@ -15,7 +15,7 @@ import (
 type side byte
 
 const (
-	MAKER_FEE      = 0.001
+	MAKER_FEE      = 0.00105
 	buy       side = 0
 	sell      side = 1
 )
@@ -197,8 +197,8 @@ func (s Set) calcDepthProfits(amount float64) (float64, float64, float64, float6
 	nextAmount := amount
 	for i, _action := range s.route {
 		book, _ := orderbook.GetBook(pair[i])
-		// exit if we dont have fresh data in books
-		if book.LastUpdated.Before(time.Now().Add(time.Hour)) {
+		// exit if book is too old
+		if time.Now().After(book.LastUpdated.Add(time.Hour)) {
 			return 0, 0, 0, 0, ""
 		}
 

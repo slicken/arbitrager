@@ -23,23 +23,20 @@ import (
 )
 
 var (
-	// app args
+	// app arguments
 	assets  []string
 	except  []string
-	all     = false
-	target  = 1.
-	steps   = 1
-	minimum = 100.
-	level   = ""
-	cpu     = 0
-	limit   = 1024
-	verbose = false
-	debug   = false
-	// temp args
-	sec time.Duration = 60
-	//
+	all     bool          = false
+	target  float64       = 1.5
+	steps   int           = 1
+	minimum float64       = 100.
+	level   string        = ""
+	cpu     int           = 0
+	limit   int           = 1024
+	verbose bool          = false
+	debug   bool          = false
+	sec     time.Duration = 60
 	// app variables
-	//
 	E          exchanges.I
 	tickers    map[string]float64
 	shutdown   = make(chan bool)
@@ -54,10 +51,10 @@ Arguments        Examples
   -a, --asset    BTC,ETH,BNB              only thease assets. TIP use quote assets
       --all                               all assets with balance
   -e, --except   DOT,USDC                 except thease assets
-  -t, --target   1.2                      target percent             (default    1)
+  -t, --target   0.99                     target percent             (default  1.5)
   -n, --decrease 2                        decrease balance N times   (default    1)
   -m, --minimum  50                       mimimum balance (in USD)   (default  100)
-  -l, --limit    50                       limit orderbooks           (default 1024)
+  -l, --limit    300                      limit orderbooks           (default 1024)
       --sec      180                      paus to next trade is sec  (default   60)
       --CPU      2                        limit cpu cores            (default  max)
       --verbose
@@ -88,7 +85,6 @@ func main() {
 					appInfo()
 				}
 				assets = Split(os.Args[i+2])
-				// log.Println("arbitraging", assets)
 
 			case "--all":
 				all = true
@@ -268,7 +264,7 @@ func main() {
 	ticker := time.NewTicker(time.Hour)
 	// handle ws streams
 	var handlarC = make(chan []byte, len(pairs))
-	var orderC = make(chan *OrderSet, 1)
+	var orderC = make(chan OrderSet, 1)
 
 	// handle channel events ----------------------------------
 	// 	- update orderbook
@@ -286,7 +282,7 @@ func main() {
 				if tickers, err = E.GetAllTickers(); err != nil {
 					log.Println("failed to update tickers:", err.Error())
 				}
-				if err = E.UpdateBalance(); err == nil {
+				if err := E.UpdateBalance(); err != nil {
 					log.Println("failed to uodate balance:", err.Error())
 				}
 
@@ -481,7 +477,7 @@ func main() {
 		go subscribePair(pair, handlarC)
 	}
 
-	log.Println("init done! ...")
+	log.Println("init done! running...")
 
 	<-shutdown
 }
