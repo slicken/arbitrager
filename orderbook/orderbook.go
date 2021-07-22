@@ -6,9 +6,9 @@ import (
 	"time"
 )
 
-var m = &sync.Mutex{}
+var mu = &sync.Mutex{}
 
-const DEPTH = 1000
+const DEPTH = 20
 
 // Orderbook holds symbol books
 var Orderbook = make(map[string]*Book)
@@ -19,8 +19,7 @@ type Book struct {
 	Bids        bids      `json:"bids"`
 	Asks        asks      `json:"asks"`
 	LastUpdated time.Time `json:"last_updated"`
-	// maxDepth    int
-	// sync.Mutex
+	pool        *sync.Pool
 }
 
 type orders map[float64]float64
@@ -34,13 +33,16 @@ type Item struct {
 }
 
 func newBook(pair string) *Book {
-	var asks = make(asks, DEPTH)
-	var bids = make(bids, DEPTH)
-
-	book := new(Book)
-	book.Name = pair
-	book.Asks = asks
-	book.Bids = bids
+	book := &Book{
+		Name:        pair,
+		Bids:        make(bids, DEPTH),
+		Asks:        make(asks, DEPTH),
+		LastUpdated: time.Time{},
+		pool: &sync.Pool{New: func() interface{} {
+			v := make([]float64, 0, DEPTH)
+			return &v
+		}},
+	}
 	Orderbook[pair] = book
 
 	return book
@@ -48,8 +50,8 @@ func newBook(pair string) *Book {
 
 // GetBook checks and returns the orderbook given an exchange name and pair
 func GetBook(pair string) (*Book, bool) {
-	m.Lock()
-	defer m.Unlock()
+	mu.Lock()
+	defer mu.Unlock()
 
 	book, ok := Orderbook[pair]
 	if !ok {
@@ -65,8 +67,8 @@ func (b *Book) Pair() string {
 
 // Limit depth of Bids and Asks
 func (b *Book) Limit() {
-	m.Lock()
-	defer m.Unlock()
+	mu.Lock()
+	defer mu.Unlock()
 
 	if len(b.Asks) > DEPTH {
 		for _, v := range b.Asks.Get()[DEPTH:] {
@@ -80,17 +82,42 @@ func (b *Book) Limit() {
 	}
 }
 
-// Delete book
+// Delete Book from map Orderbook
 func Delete(name string) {
-	m.Lock()
-	defer m.Unlock()
+	mu.Lock()
+	defer mu.Unlock()
 
 	delete(Orderbook, name)
 }
 
+func (b *Book) Reset() {
+	mu.Lock()
+	defer mu.Unlock()
+
+	b.Asks = make(asks, DEPTH)
+	b.Bids = make(bids, DEPTH)
+}
+
+// Reset Asks
+func (l *asks) Reset() {
+	mu.Lock()
+	defer mu.Unlock()
+
+	(*l) = make(asks, DEPTH)
+}
+
+// Reset Bids
+func (l *bids) Reset() {
+	mu.Lock()
+	defer mu.Unlock()
+
+	(*l) = make(bids, DEPTH)
+}
+
+// Add a Ask order
 func (l *asks) Add(price, amount float64) {
-	m.Lock()
-	defer m.Unlock()
+	mu.Lock()
+	defer mu.Unlock()
 
 	if amount == 0 {
 		delete(*l, price)
@@ -99,9 +126,10 @@ func (l *asks) Add(price, amount float64) {
 	}
 }
 
+// Add a Bid order
 func (l *bids) Add(price, amount float64) {
-	m.Lock()
-	defer m.Unlock()
+	mu.Lock()
+	defer mu.Unlock()
 
 	if amount == 0 {
 		delete(*l, price)
@@ -110,9 +138,10 @@ func (l *bids) Add(price, amount float64) {
 	}
 }
 
+// Add Ask or Bid
 func (b *Book) Add(price, amount float64, bid bool) {
-	m.Lock()
-	defer m.Unlock()
+	mu.Lock()
+	defer mu.Unlock()
 
 	if !bid {
 		if amount == 0 {
@@ -131,9 +160,10 @@ func (b *Book) Add(price, amount float64, bid bool) {
 	b.LastUpdated = time.Now()
 }
 
+// Get Bids with totals (sorted)
 func (v asks) Get() (items []Item) {
-	m.Lock()
-	defer m.Unlock()
+	mu.Lock()
+	defer mu.Unlock()
 
 	keys := make([]float64, 0, len(v))
 	for k := range v {
@@ -149,9 +179,10 @@ func (v asks) Get() (items []Item) {
 	return
 }
 
+// Get Bids with totals (sorted)
 func (v bids) Get() (items []Item) {
-	m.Lock()
-	defer m.Unlock()
+	mu.Lock()
+	defer mu.Unlock()
 
 	keys := make([]float64, 0, len(v))
 	for k := range v {

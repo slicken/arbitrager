@@ -44,6 +44,7 @@ const (
 // Binance is exchange wrapper
 type Binance struct {
 	exchanges.Exchange
+	Debug bool
 	// *client.RateLimit
 }
 
@@ -178,9 +179,7 @@ func (e *Binance) GetOrderbook(pair string, limit int64) (*orderbook.Book, error
 	}
 	resp := OrderBookData{}
 
-	e.Lock()
 	book, _ := orderbook.GetBook(pair)
-	e.Unlock()
 
 	if limit == 0 || limit > 1000 {
 		limit = 1000
@@ -356,9 +355,71 @@ func (e *Binance) SendCancel(pair string, id int64) error {
 	return err
 }
 
-// StreamOrderbook subscribes to symbols orderbooks and updates itcontiniously
-// func (e *Binance) StreamOrderbook(pair string, c chan<- orderbook.Event) error {
-func (e *Binance) StreamOrderbook(pair string, done <-chan bool, notifyCh chan<- string) error {
+// StreamBookDepth subscribes to symbols orderbooks and stream the top level depths
+func (e *Binance) StreamBookDepth(pair string, doneC <-chan bool, notifyC chan<- string) error {
+	sym, err := e.Pair(pair)
+	if err != nil {
+		return fmt.Errorf("%s not found\n", pair)
+	}
+
+	url := fmt.Sprintf(wsURL+"/ws/%s@depth20@100ms", strings.ToLower(sym.Name))
+	ws, _, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		return fmt.Errorf("dial: %v\n", err)
+	}
+
+	defer func() {
+		orderbook.Delete(pair)
+		ws.Close()
+	}()
+
+	book, _ := orderbook.GetBook(sym.Name)
+
+	for {
+		select {
+		case <-doneC:
+			break
+		default:
+		}
+
+		_, b, err := ws.ReadMessage()
+		if err != nil {
+			log.Printf("reconnecting %s due to: %v\n", sym.Name, err.Error())
+			orderbook.Delete(sym.Name)
+			go e.StreamBookDepth(sym.Name, doneC, notifyC)
+			break
+		}
+
+		var resp DepthResponse
+		if err := json.Unmarshal(b, &resp); err != nil {
+			log.Println(err.Error())
+			continue
+		}
+
+		book.Reset()
+		for _, v := range resp.Asks {
+			p, _ := strconv.ParseFloat(v[0].(string), 64)
+			a, _ := strconv.ParseFloat(v[1].(string), 64)
+			book.Asks.Add(p, a)
+			// book.Add(p, a, false)
+		}
+		for _, v := range resp.Bids {
+			p, _ := strconv.ParseFloat(v[0].(string), 64)
+			a, _ := strconv.ParseFloat(v[1].(string), 64)
+			book.Bids.Add(p, a)
+			// book.Add(p, a, true)
+		}
+		if e.Debug {
+			fmt.Printf("%-12s %-12d %-12d\n", sym.Name, len(book.Asks), len(book.Bids))
+		}
+		notifyC <- sym.Name
+	}
+
+	return nil
+}
+
+// SteamBookDeff stream only the new entry diffs made to orderbook
+func (e *Binance) StreamBookDiff(pair string, done <-chan bool, notifyCh chan<- string) error {
 	sym, err := e.Pair(pair)
 	if err != nil {
 		return fmt.Errorf("%s not found\n", pair)
@@ -373,9 +434,7 @@ func (e *Binance) StreamOrderbook(pair string, done <-chan bool, notifyCh chan<-
 
 	go func() {
 		defer func() {
-			e.Lock()
 			orderbook.Delete(pair)
-			e.Unlock()
 			ws.Close()
 		}()
 
@@ -567,68 +626,4 @@ func (e *Binance) GetKlines(symbol, timeframe string, limit int) (history.Bars, 
 	}
 
 	return bars, nil
-}
-
-// StreamOrderbook subscribes to symbols orderbooks and updates itcontiniously
-// func (e *Binance) StreamOrderbook(pair string, c chan<- orderbook.Event) error {
-func (e *Binance) StreamOrderbook2(pair string, done <-chan bool, notifyCh chan<- string) error {
-	sym, err := e.Pair(pair)
-	if err != nil {
-		return fmt.Errorf("%s not found\n", pair)
-	}
-
-	url := fmt.Sprintf(wsURL+"/ws/%s@depth20@100ms", strings.ToLower(sym.Name))
-	ws, _, err := websocket.DefaultDialer.Dial(url, nil)
-	if err != nil {
-		return fmt.Errorf("dial: %v\n", err)
-	}
-
-	defer func() {
-		e.Lock()
-		orderbook.Delete(pair)
-		e.Unlock()
-		ws.Close()
-	}()
-
-	// e.Lock()
-	book, _ := orderbook.GetBook(sym.Name)
-	// e.Unlock()
-
-	for {
-		select {
-		case <-done:
-			break
-		default:
-		}
-
-		_, b, err := ws.ReadMessage()
-		if err != nil {
-
-			log.Printf("ws error %s: %v\n", pair, err.Error())
-			break
-		}
-
-		var resp DepthResponse
-		if err := json.Unmarshal(b, &resp); err != nil {
-			log.Println(err.Error())
-			continue
-		}
-
-		for _, v := range resp.Asks {
-			p, _ := strconv.ParseFloat(v[0].(string), 64)
-			a, _ := strconv.ParseFloat(v[1].(string), 64)
-			// book.Asks.Add(p, a)
-			book.Add(p, a, false)
-		}
-		for _, v := range resp.Bids {
-			p, _ := strconv.ParseFloat(v[0].(string), 64)
-			a, _ := strconv.ParseFloat(v[1].(string), 64)
-			// book.Bids.Add(p, a)
-			book.Add(p, a, true)
-		}
-
-		notifyCh <- sym.Name
-	}
-
-	return nil
 }

@@ -14,7 +14,7 @@ func LoadExchange(name string) error {
 
 	switch name {
 	case "binance":
-		e = new(binance.Binance)
+		e = &binance.Binance{Debug: debug}
 	case "kucoin":
 		// e = new(kucoin.Kucoin)
 	default:

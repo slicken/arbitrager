@@ -2,7 +2,6 @@ package exchanges
 
 import (
 	"errors"
-	"sync"
 
 	"github.com/slicken/arbitrager/client"
 	"github.com/slicken/arbitrager/config"
@@ -23,7 +22,6 @@ type Exchange struct {
 	Pairs map[string]currencie.Pair
 
 	*client.Requester
-	sync.RWMutex
 }
 
 // I enforces standard functions for all Exchanges
@@ -50,8 +48,8 @@ type I interface {
 	OrderStatus(id int64) (string, error)
 	OrderFills(id int64) (float64, error)
 	// WS
-	StreamOrderbook(pair string, done <-chan bool, notify chan<- string) error  //ws:
-	StreamOrderbook2(pair string, done <-chan bool, notify chan<- string) error //ws:
+	StreamBookDiff(pair string, done <-chan bool, notify chan<- string) error  //ws:
+	StreamBookDepth(pair string, done <-chan bool, notify chan<- string) error //ws:
 }
 
 // GetName returns exchangd name

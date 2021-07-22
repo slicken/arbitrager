@@ -337,15 +337,16 @@ func (s Set) calcDepthProfits(amount float64) (float64, float64, float64, float6
 
 	profit := nextAmount - amount
 	perc := ((amount+profit)/amount)*100 - 100
-
-	if target > perc || !verbose && 0 >= profit {
+	if 0 >= profit {
 		return 0, 0, 0, 0, ""
 	}
-
 	msg := fmt.Sprintf("%-6s %-12f %%s %-12f (%5.2f%%%%) %8s %-12s %-12f %8s %-12s %-12f %8s %-12s %-12f\n",
 		s.asset, amount, profit, perc, Side[s.route[0]], pair[0], price[0], Side[s.route[1]], pair[1], price[1], Side[s.route[2]], pair[2], price[2])
 	if verbose {
 		log.Printf(msg, "   ")
+	}
+	if target > perc {
+		return 0, 0, 0, 0, ""
 	}
 
 	return profit, next[0], next[1], next[2], msg
