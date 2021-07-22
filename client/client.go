@@ -6,7 +6,6 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	"sync"
 	"time"
 )
 
@@ -14,9 +13,7 @@ import (
 type Requester struct {
 	Name       string
 	HTTPClient *http.Client
-
-	sync.Mutex
-	Debug bool
+	Debug      bool
 }
 
 // DefaultHTTPTimeout holds default timeout
@@ -59,4 +56,38 @@ func (r *Requester) Do(req *http.Request, method, path string, auth bool, result
 	}
 
 	return nil
+}
+
+type RateLimit struct {
+	value int
+	rates []rate
+}
+
+type rate struct {
+	waight int
+	expiry time.Time
+}
+
+func NewRateLimit(value int) *RateLimit {
+	return &RateLimit{value: value}
+}
+
+func (r *RateLimit) Add(waight int, expiry time.Time) {
+	r.rates = append(r.rates, rate{waight: waight, expiry: expiry})
+}
+
+func (r *RateLimit) Get() int {
+	var n = make([]rate, 0)
+
+	rate := r.value
+	for _, v := range r.rates {
+		if time.Now().After(v.expiry) {
+			continue
+		}
+		n = append(n, v)
+		rate -= v.waight
+	}
+
+	r.rates = n
+	return rate
 }

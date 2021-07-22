@@ -32,11 +32,10 @@ func LoadExchange(name string) error {
 		return errors.New("exchange config not found")
 	}
 
-	e.Setup(cfg)
-	err := e.Init()
-	if err == nil {
-		E = e
+	if err := e.Init(cfg); err != nil {
+		return err
 	}
+	E = e
 
-	return err
+	return nil
 }

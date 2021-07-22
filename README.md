@@ -1,16 +1,75 @@
+[![Software License](https://img.shields.io/badge/license-MIT-brightgreen.svg?style=flat-square)](/LICENSE.md)
+
+
 # arbitrager
 
-trading running various arbitrage strategies on popular crypto exchanges.
+connecting up to 1024 orderbooks via websocket and scans for arbitrage opportunities
+on varoius popular exchanges.
 
 
-Strategies list
-Simple Buy, Sell cross exchange
-Triangular arbitrage, checking all possible routes
+**STRATEGIES SUPPORTED**
 
-Supported exchanges
+Triangular arbitrage - *checking all possible trade routes*
+
+**EXCHANGES SUPPORTED**
+
 Binance
 
-To be supported
-Kucoin
-FTX
-...
+
+# TODO:
+
+Kucoin *exchange support*
+
+FTX *exchange support*
+
+*and more exchange supports...*
+
+Buy, Sell cross exchange strategy
+
+
+
+```
+slicken@slk:~/go/src/github.com/slicken/arbitrager$ ./app help
+Usage: ./app [-a <assets>|--all] [-e <assets>] [-t <percent>] [-n <uint>] [-m <USD>]
+             [--100] [--CPU <cores>] [--verbose] [-l <uint>] [--sec <uint>]
+Arguments        Examples
+  -a, --asset    BTC,ETH,BNB              only thease assets. TIP use quote assets
+      --all                               all assets with balance
+  -e, --except   DOT,USDC                 except thease assets
+  -t, --target   0.99                     target percent             (default  1.5)
+  -n, --decrease 2                        decrease balance N times   (default    1)
+  -m, --minimum  50                       mimimum balance (in USD)   (default  100)
+  -l, --limit    300                      limit orderbooks           (default 1024)
+      --sec      180                      paus to next trade is sec  (default   60)
+      --CPU      2                        limit cpu cores            (default  max)
+      --verbose
+  -h  --help
+                                       -- slk prod 2021 --
+slicken@slk:~/go/src/github.com/slicken/arbitrager$ 
+slicken@slk:~/go/src/github.com/slicken/arbitrager$ ./app --all -t 0 -l 300 --verbose
+2021/07/16 14:47:20 verbose enabled
+2021/07/16 14:47:20 target is 1.50%
+2021/07/16 14:47:20 logging to "app_20210716.log"
+2021/07/16 14:47:20 reading config...
+2021/07/16 14:47:21 connected to binance
+2021/07/16 14:47:22 found assets [SLP USDT]
+2021/07/16 14:47:22 mapping out trade routes
+2021/07/16 14:47:23 connecting to 300 orderbooks
+[DNTUSDT DNTBUSD BUSDUSDT DNTBTC BTCUSDT SANDUSDT SANDBNB BNBUSDT SANDBUSD SANDBTC ONGUSDT ONGBTC AXSUSDT AXSBNB AXSBTC AXSBUSD RSRUSDT RSRBTC RSRBUSD RSRBNB DREPUSDT DREPBTC
+COTIUSDT COTIBNB COTIBUSD COTIBTC JSTUSDT JSTBTC JSTBNB JSTBUSD FIROUSDT FIROETH ETHUSDT FIROBTC CTKUSDT CTKBUSD CTKBNB CTKBTC ADAUSDT ADAUSDC USDCUSDT ADAEUR EURUSDT ADABTC
+ADAAUD AUDUSDT ADAETH ADABNB ADABUSD ADATUSD TUSDUSDT ADAGBP GBPUSDT XRPUSDC XRPUSDT ATOMUSDC ATOMUSDT BCHUSDC BCHUSDT BTCUSDC BTTUSDC BTTUSDT EOSUSDC EOSUSDT NEOUSDC NEOUSDT
+TRXUSDC TRXUSDT LINKUSDC LINKUSDT BNBUSDC WINUSDC WINUSDT LTCUSDC LTCUSDT ETHUSDC ZECUSDC ZECUSDT USDCBUSD WNXMUSDT WNXMBNB WNXMBTC IOSTUSDT IOSTBUSD IOSTBNB IOSTBTC IOSTETH
+ATAUSDT ATABNB ATABUSD ATABTC FILUSDT FILBTC FILBNB FILBUSD SLPUSDT SLPETH SLPBUSD ETHEUR BNBEUR EGLDEUR EGLDUSDT LUNAEUR LUNAUSDT SOLEUR SOLUSDT THETAEUR THETAUSDT XRPEUR
+TRXEUR EOSEUR DOTEUR DOTUSDT SXPEUR SXPUSDT GRTEUR GRTUSDT XLMEUR XLMUSDT CHZEUR CHZUSDT RUNEEUR RUNEUSDT WINEUR WRXEUR WRXUSDT BTCEUR BCHEUR BTTEUR VETEUR VETUSDT LTCEUR
+ICPEUR ICPUSDT DOGEEUR DOGEUSDT YFIEUR YFIUSDT ETCEUR ETCUSDT MATICEUR MATICUSDT SHIBEUR SHIBUSDT UNIEUR UNIUSDT ENJEUR ENJUSDT AVAXEUR AVAXUSDT LINKEUR HOTEUR HOTUSDT EURBUSD
+TRXXRP XRPTUSD XRPBTC XRPBNB XRPBUSD XRPAUD XRPGBP XRPETH PUNDIXUSDT PUNDIXETH PONDUSDT PONDBUSD PONDBTC TCTUSDT TCTBTC THETABNB THETABTC THETAETH THETABUSD YFIBTC YFIBUSD
+YFIBNB NBSUSDT NBSBTC PAXGUSDT PAXGBTC PAXGBNB SFPUSDT SFPBTC SFPBUSD FORTHBTC FORTHUSDT OMGBTC OMGUSDT PNTBTC PNTUSDT COMPBTC COMPUSDT BTGBTC BTGUSDT KNCBTC KNCUSDT ARPABTC
+ARPAUSDT FTMBTC FTMUSDT TROYBTC TROYUSDT MANABTC MANAUSDT OXTBTC OXTUSDT BANDBTC BANDUSDT MIRBTC MIRUSDT BZRXBTC BZRXUSDT RAMPBTC RAMPUSDT DOGEBTC GTOBTC GTOUSDT IOTXBTC IOTXUSDT
+AUTOBTC AUTOUSDT SXPBTC DASHBTC DASHUSDT ONTBTC ONTUSDT EOSBTC XEMBTC XEMUSDT WINGBTC WINGUSDT HARDBTC HARDUSDT STORJBTC STORJUSDT BTSBTC BTSUSDT ATMBTC ATMUSDT BEAMBTC BEAMUSDT
+TRBBTC TRBUSDT EPSBTC EPSUSDT BARBTC BARUSDT ANKRBTC ANKRUSDT NMRBTC NMRUSDT FIOBTC FIOUSDT PHABTC PHAUSDT OCEANBTC OCEANUSDT BTCSTBTC BTCSTUSDT BNTBTC BNTUSDT DATABTC DATAUSDT
+IOTABTC IOTAUSDT RENBTC RENUSDT CELOBTC CELOUSDT KMDBTC KMDUSDT TORNBTC TORNUSDT LTCBTC RUNEBTC CFXBTC CFXUSDT WAVESBTC WAVESUSDT BCHBTC 1INCHBTC 1INCHUSDT CKBBTC CKBUSDT CRVBTC
+CRVUSDT KAVABTC KAVAUSDT HNTBTC HNTUSDT HBARBTC HBARUSDT ALICEBTC ALICEUSDT MTLBTC MTLUSDT RVNBTC RVNUSDT MDTBTC MDTUSDT]
+2021/07/16 14:47:23 init done! running...
+2021/07/16 14:56:54 SLP    100.000000       0.122404     ( 0.12%)     sell SLPUSDT      0.262900          buy BUSDUSDT     1.000200          buy SLPBUSD      0.261700    
+2021/07/16 14:58:17 USDT   100.000000       0.166205     ( 0.17%)      buy EPSUSDT      0.525000         sell EPSBTC       0.000017         sell BTCUSDT      31779.070000
+```

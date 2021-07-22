@@ -171,3 +171,21 @@ type OrderHistory struct {
 	Symbol          string `json:"symbol"`
 	Time            int64  `json:"time"`
 }
+
+// WsDepthEvent - ws orderbook data
+type DepthEvent struct {
+	Event         string          `json:"e"`
+	Time          int64           `json:"E"`
+	Symbol        string          `json:"s"`
+	LastUpdateID  int64           `json:"u"`
+	FirstUpdateID int64           `json:"U"`
+	Bids          [][]interface{} `json:"b"`
+	Asks          [][]interface{} `json:"a"`
+}
+
+// DepthResponse for fast ws orderbook data
+type DepthResponse struct {
+	LastUpdateID int64           `json:"lastUpdateId"`
+	Bids         [][]interface{} `json:"bids"`
+	Asks         [][]interface{} `json:"asks"`
+}

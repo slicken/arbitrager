@@ -5,7 +5,6 @@ import (
 	"log"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/slicken/arbitrager/currencie"
 	"github.com/slicken/arbitrager/exchanges"
@@ -21,8 +20,8 @@ const (
 )
 
 var Side = map[side]string{
-	0: "buy",
-	1: "sell",
+	side(buy):  "buy",
+	side(sell): "sell",
 }
 
 type Route [3]side
@@ -55,15 +54,13 @@ var routes = []Arbitrage{
 
 var SetsMap = make(map[currencie.Pair]Sets)
 
-type kv struct {
-	Key   string
-	Value int
-}
-
 func TopSetsMapList() []string {
-	var points [3][]kv
+	var points [3][]struct {
+		Key   string
+		Value int
+	}
 
-	var abc = make([]map[string]int, 3)
+	abc := make([]map[string]int, 3)
 	abc[0] = make(map[string]int)
 	abc[1] = make(map[string]int)
 	abc[2] = make(map[string]int)
@@ -75,23 +72,26 @@ func TopSetsMapList() []string {
 			}
 		}
 		for k, v := range m {
-			points[n] = append(points[n], kv{k, v})
+			points[n] = append(points[n], struct {
+				Key   string
+				Value int
+			}{
+				Key:   k,
+				Value: v,
+			})
 		}
 		sort.Slice(points[n], func(i, j int) bool {
 			return points[n][i].Value > points[n][j].Value
 		})
 
 	}
-
 	var ss []string
 	for i, v := range points {
 		for _, p := range v {
 			ss = append(ss, p.Key)
 			fmt.Printf("%-3d %-10s  =>  %-10d\n", i, p.Key, p.Value)
 		}
-
 	}
-
 	return ss
 }
 
@@ -155,6 +155,101 @@ func pairsByBase(e exchanges.I, base, except string) (pairs []currencie.Pair) {
 	return
 }
 
+func (s *bbs) Sets(curr string) (sets Sets) {
+	curr = strings.ToUpper(curr)
+
+	for _, a := range pairsByQuote(E, curr, "") {
+		for _, b := range pairsByQuote(E, a.Base, a.Quote) {
+			if c, err := E.Pair(b.Base + curr); err == nil {
+				sets = append(sets, Set{
+					asset: curr,
+					route: Route{buy, buy, sell},
+					a:     a,
+					b:     b,
+					c:     c,
+				})
+			}
+		}
+	}
+	return
+}
+
+func (s *bss) Sets(curr string) (sets Sets) {
+	curr = strings.ToUpper(curr)
+
+	for _, a := range pairsByQuote(E, curr, "") {
+		for _, b := range pairsByBase(E, a.Base, a.Quote) {
+			if c, err := E.Pair(b.Quote + curr); err == nil {
+				sets = append(sets, Set{
+					asset: curr,
+					route: Route{buy, sell, sell},
+					a:     a,
+					b:     b,
+					c:     c,
+				})
+			}
+		}
+	}
+	return
+}
+
+func (s *sbb) Sets(curr string) (sets Sets) {
+	curr = strings.ToUpper(curr)
+
+	for _, a := range pairsByBase(E, curr, "") {
+		for _, b := range pairsByQuote(E, a.Quote, a.Base) {
+			if c, err := E.Pair(curr + b.Base); err == nil {
+				sets = append(sets, Set{
+					asset: curr,
+					route: Route{sell, buy, buy},
+					a:     a,
+					b:     b,
+					c:     c,
+				})
+			}
+		}
+	}
+	return
+}
+
+func (s *ssb) Sets(curr string) (sets Sets) {
+	curr = strings.ToUpper(curr)
+
+	for _, a := range pairsByBase(E, curr, "") {
+		for _, b := range pairsByBase(E, a.Quote, a.Base) {
+			if c, err := E.Pair(curr + b.Quote); err == nil {
+				sets = append(sets, Set{
+					asset: curr,
+					route: Route{sell, sell, buy},
+					a:     a,
+					b:     b,
+					c:     c,
+				})
+			}
+		}
+	}
+	return
+}
+
+func mapSets() {
+	for _, currency := range assets {
+		for _, fn := range routes {
+			for _, set := range fn.Sets(currency) {
+				SetsMap[set.a] = append(SetsMap[set.a], set)
+			}
+		}
+	}
+}
+
+func containList(str string, list []string) bool {
+	for _, v := range list {
+		if strings.Contains(str, v) {
+			return true
+		}
+	}
+	return false
+}
+
 type OrderSet struct {
 	profit float64
 	amount float64
@@ -197,10 +292,6 @@ func (s Set) calcDepthProfits(amount float64) (float64, float64, float64, float6
 	nextAmount := amount
 	for i, _action := range s.route {
 		book, _ := orderbook.GetBook(pair[i])
-		// exit if book is too old
-		if time.Now().After(book.LastUpdated.Add(time.Hour)) {
-			return 0, 0, 0, 0, ""
-		}
 
 		//		 buyFee=BASE_QUOTE=sellFee				next=what orders will use
 		// 		action	pair			price			[]next			nextAmount		correct			comment
@@ -216,7 +307,8 @@ func (s Set) calcDepthProfits(amount float64) (float64, float64, float64, float6
 		switch _action {
 		// buy
 		case 0:
-			for _, depth := range book.Asks.Get() {
+			asks := book.Asks.Get()
+			for _, depth := range asks {
 				if depth.Total >= (nextAmount / depth.Price) {
 					price[i] = depth.Price
 					nextAmount /= depth.Price
@@ -227,7 +319,8 @@ func (s Set) calcDepthProfits(amount float64) (float64, float64, float64, float6
 			}
 		// sell
 		case 1:
-			for _, depth := range book.Bids.Get() {
+			bids := book.Bids.Get()
+			for _, depth := range bids {
 				if depth.Total >= nextAmount {
 					price[i] = depth.Price
 					nextAmount *= depth.Price
@@ -244,136 +337,16 @@ func (s Set) calcDepthProfits(amount float64) (float64, float64, float64, float6
 
 	profit := nextAmount - amount
 	perc := ((amount+profit)/amount)*100 - 100
-	if 0 >= profit {
+
+	if target > perc || !verbose && 0 >= profit {
 		return 0, 0, 0, 0, ""
 	}
+
 	msg := fmt.Sprintf("%-6s %-12f %%s %-12f (%5.2f%%%%) %8s %-12s %-12f %8s %-12s %-12f %8s %-12s %-12f\n",
 		s.asset, amount, profit, perc, Side[s.route[0]], pair[0], price[0], Side[s.route[1]], pair[1], price[1], Side[s.route[2]], pair[2], price[2])
 	if verbose {
 		log.Printf(msg, "   ")
 	}
-	if target > perc {
-		return 0, 0, 0, 0, ""
-	}
 
 	return profit, next[0], next[1], next[2], msg
-}
-
-func (s *bbs) Sets(curr string) (sets Sets) {
-	curr = strings.ToUpper(curr)
-
-	for _, a := range pairsByQuote(E, curr, "") {
-		for _, b := range pairsByQuote(E, a.Base, a.Quote) {
-			if c, err := E.Pair(b.Base + curr); err == nil {
-				sets = append(sets, Set{
-					asset: curr,
-					route: Route{buy, buy, sell},
-					a:     a,
-					b:     b,
-					c:     c,
-				})
-				// if verbose {
-				// 	log.Printf("buy ---- %-10s buy ---- %-10s sell --- %-10s\n", a.Name, b.Name, c.Name)
-				// }
-			}
-		}
-	}
-	// if verbose && len(Sets) > 0 {
-	// 	log.Printf("--- total: %d ---\n", len(Sets))
-	// }
-	return
-}
-
-func (s *bss) Sets(curr string) (sets Sets) {
-	curr = strings.ToUpper(curr)
-
-	for _, a := range pairsByQuote(E, curr, "") {
-		for _, b := range pairsByBase(E, a.Base, a.Quote) {
-			if c, err := E.Pair(b.Quote + curr); err == nil {
-				sets = append(sets, Set{
-					asset: curr,
-					route: Route{buy, sell, sell},
-					a:     a,
-					b:     b,
-					c:     c,
-				})
-				// if verbose {
-				// 	log.Printf("buy ---- %-10s sell --- %-10s sell --- %-10s\n", a.Name, b.Name, c.Name)
-				// }
-			}
-		}
-	}
-	// if verbose && len(Sets) > 0 {
-	// 	log.Printf("--- total: %d ---\n", len(Sets))
-	// }
-	return
-}
-
-func (s *sbb) Sets(curr string) (sets Sets) {
-	curr = strings.ToUpper(curr)
-
-	for _, a := range pairsByBase(E, curr, "") {
-		for _, b := range pairsByQuote(E, a.Quote, a.Base) {
-			if c, err := E.Pair(curr + b.Base); err == nil {
-				sets = append(sets, Set{
-					asset: curr,
-					route: Route{sell, buy, buy},
-					a:     a,
-					b:     b,
-					c:     c,
-				})
-				// if verbose {
-				// 	log.Printf("sell --- %-10s buy ---- %-10s buy ---- %-10s\n", a.Name, b.Name, c.Name)
-				// }
-			}
-		}
-	}
-	// if verbose && len(Sets) > 0 {
-	// 	log.Printf("--- total: %d ---\n", len(Sets))
-	// }
-	return
-}
-
-func (s *ssb) Sets(curr string) (sets Sets) {
-	curr = strings.ToUpper(curr)
-
-	for _, a := range pairsByBase(E, curr, "") {
-		for _, b := range pairsByBase(E, a.Quote, a.Base) {
-			if c, err := E.Pair(curr + b.Quote); err == nil {
-				sets = append(sets, Set{
-					asset: curr,
-					route: Route{sell, sell, buy},
-					a:     a,
-					b:     b,
-					c:     c,
-				})
-				// if verbose {
-				// 	log.Printf("sell --- %-10s sell --- %-10s buy ---- %-10s\n", a.Name, b.Name, c.Name)
-				// }
-			}
-		}
-	}
-	// if verbose && len(Sets) > 0 {
-	// 	log.Printf("--- total: %d ---\n", len(Sets))
-	// }
-	return
-}
-
-func mapSets() {
-	for _, currency := range assets {
-		for _, fn := range routes {
-			for _, set := range fn.Sets(currency) {
-				SetsMap[set.a] = append(SetsMap[set.a], set)
-			}
-		}
-	}
-}
-
-func containList(str string, list []string) bool {
-	for _, v := range list {
-		if strings.Contains(str, v) {
-			return true
-		}
-	}
-	return false
 }

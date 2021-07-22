@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -24,24 +25,26 @@ import (
 
 var (
 	// app arguments
-	assets  []string
-	except  []string
-	all     bool          = false
-	target  float64       = 1.5
-	steps   int           = 1
-	minimum float64       = 100.
-	level   string        = ""
-	cpu     int           = 0
-	limit   int           = 1024
-	verbose bool          = false
-	debug   bool          = false
-	sec     time.Duration = 60
+	assets   []string
+	except   []string
+	all      bool    = false
+	target   float64 = 1.5
+	steps    int     = 1
+	size     float64 = 100
+	minimum  float64 = 20
+	download bool    = false
+	level    string  = ""
+	cpu      int     = 0
+	limit    int     = 1024
+	verbose  bool    = false
+	debug    bool    = false
 	// app variables
 	E          exchanges.I
 	tickers    map[string]float64
 	shutdown   = make(chan bool)
 	_, appName = filepath.Split(os.Args[0])
 	lastTrade  = time.Now()
+	rw         = &sync.RWMutex{}
 )
 
 func appInfo() {
@@ -51,12 +54,12 @@ Arguments        Examples
   -a, --asset    BTC,ETH,BNB              only thease assets. TIP use quote assets
       --all                               all assets with balance
   -e, --except   DOT,USDC                 except thease assets
-  -t, --target   0.99                     target percent             (default  1.5)
-  -n, --decrease 2                        decrease balance N times   (default    1)
-  -m, --minimum  50                       mimimum balance (in USD)   (default  100)
-  -l, --limit    300                      limit orderbooks           (default 1024)
-      --sec      180                      paus to next trade is sec  (default   60)
-      --CPU      2                        limit cpu cores            (default  max)
+  -t, --target   0.99                     target percent             (default   1.5)
+  -n, --decrease 2                        decrease balance N times   (default     1)
+  -s, --size     1000                     tradesize (in USD)         (default   100)
+  -l, --limit    300                      limit orderbooks           (default  1024)
+      --download                          download orderbook         (default false)
+      --CPU      2                        limit cpu cores            (default   max)
       --verbose
   -h  --help
                                        -- slk prod 2021 --`)
@@ -88,14 +91,12 @@ func main() {
 
 			case "--all":
 				all = true
-				log.Println("all assets with balance")
 
 			case "-e", "--except":
 				if i+3 > len(os.Args) {
 					appInfo()
 				}
 				except = Split(os.Args[i+2])
-				log.Println("except", except)
 
 			case "-t", "--target":
 				if i+3 > len(os.Args) {
@@ -106,7 +107,6 @@ func main() {
 					appInfo()
 				}
 				target = v
-				log.Println("target percent", target)
 
 			case "-n", "--decrease":
 				if i+3 > len(os.Args) {
@@ -119,6 +119,17 @@ func main() {
 				steps = v
 				log.Printf("decrease balance %d times\n", steps)
 
+			case "-s", "--size":
+				if i+3 > len(os.Args) {
+					appInfo()
+				}
+				v, err := strconv.ParseFloat(os.Args[i+2], 64)
+				if err != nil {
+					appInfo()
+				}
+				size = v
+				log.Println("tradesize (in USD)", size)
+
 			case "-m", "--minimum":
 				if i+3 > len(os.Args) {
 					appInfo()
@@ -128,7 +139,11 @@ func main() {
 					appInfo()
 				}
 				minimum = v
-				log.Println("minimum balance (in USD)", minimum)
+				log.Println("min tradesize (in USD)", minimum)
+
+			case "--download":
+				download = true
+				log.Println("dowloading orderbooks")
 
 			case "-l", "--limit":
 				if i+3 > len(os.Args) {
@@ -139,18 +154,6 @@ func main() {
 					appInfo()
 				}
 				limit = v
-				log.Println("limit orderbooks to", v)
-
-			case "--sec":
-				if i+3 > len(os.Args) {
-					appInfo()
-				}
-				v, err := strconv.Atoi(os.Args[i+2])
-				if err != nil {
-					appInfo()
-				}
-				sec = time.Duration(v)
-				log.Printf("order sleep set to %dsec\n", v)
 
 			case "--100":
 				level = "20@100ms"
@@ -185,6 +188,7 @@ func main() {
 	if !all && len(assets) == 0 {
 		appInfo()
 	}
+	log.Printf("target is %.2f%%\n", target)
 
 	// HANDLE INTERRUPT SIGNAL
 	HandleInterrupt()
@@ -212,7 +216,6 @@ func main() {
 
 	// PREPARE DATA ---------------------------------
 
-	// download tickers
 	var err error
 	if tickers, err = E.GetAllTickers(); err != nil {
 		log.Fatalln("failed to update tickers:", err.Error())
@@ -240,6 +243,9 @@ func main() {
 		}
 	}
 
+	if len(assets) == 0 {
+		log.Fatalln("no assets found")
+	}
 	log.Println("found assets", assets)
 
 	mapSets()
@@ -256,9 +262,10 @@ func main() {
 
 	if len(pairs) > limit {
 		pairs = pairs[:limit]
+		log.Println("limit orderbooks to", limit)
 	}
 
-	log.Printf("connecting to %d orderbooks\n%s", len(pairs), pairs)
+	log.Printf("connecting to %d orderbooks --> %s", len(pairs), pairs)
 
 	// update tickers
 	ticker := time.NewTicker(time.Hour)
@@ -266,6 +273,9 @@ func main() {
 	var handlarC = make(chan []byte, len(pairs))
 	var orderC = make(chan OrderSet, 1)
 
+	// TODO: try make book channel
+	// var bookC = make(chan *orderbook.Book, len(pairs))
+	var updatedC = make(chan string, len(pairs))
 	// handle channel events ----------------------------------
 	// 	- update orderbook
 	//  - send order
@@ -276,7 +286,9 @@ func main() {
 			select {
 			case <-shutdown:
 				return
-
+			//
+			// update tickers and balance
+			//
 			case <-ticker.C:
 				var err error
 				if tickers, err = E.GetAllTickers(); err != nil {
@@ -286,6 +298,34 @@ func main() {
 					log.Println("failed to uodate balance:", err.Error())
 				}
 
+			//
+			// update tickers and balance
+			//
+			case name := <-updatedC:
+				// continue if to early
+				if time.Now().Before(lastTrade) {
+					continue
+				}
+
+				// loop throu all possible routes
+				pair, _ := E.Pair(name)
+				sets := SetsMap[pair]
+				for _, set := range sets {
+					for _, asset := range assets {
+						if asset != set.asset {
+							continue
+						}
+
+						if order := set.calcStepProfits(size); order != nil {
+							// fmt.Println("orderC <-", order)
+							// orderC <- *order
+						}
+					}
+				}
+
+			//
+			// send orders
+			//
 			case order := <-orderC:
 				var err error
 				var _pair = [3]string{order.a.Name, order.b.Name, order.c.Name}
@@ -303,7 +343,7 @@ func main() {
 					minAmount := _amount[i] - (_amount[i] * 0.05) //(3 * MAKER_FEE))
 					for _amount[i] > minAmount {
 						// send market order
-						log.Printf("%-6s %-12v     %-12s\n", Side[side], _amount[i], _pair[i])
+						log.Printf("%-12s %-12f %-12s\n", Side[side], _amount[i], _pair[i])
 						err = E.SendMarket(_pair[i], Side[side], _amount[i])
 						if err == nil {
 							break
@@ -314,7 +354,7 @@ func main() {
 						} else if tries > 1 || i == 0 {
 							// return if first trade
 							log.Println("ERROR:", err.Error())
-							lastTrade = time.Now().Add(sec * time.Second)
+							lastTrade = time.Now().Add(time.Minute)
 							return
 						} else {
 							tries++
@@ -344,8 +384,12 @@ func main() {
 					log.Fatalln(err.Error())
 				}
 				// success! dont look for new trades for x minutes
-				lastTrade = time.Now().Add(sec * time.Second)
+				lastTrade = time.Now().Add(time.Minute)
 
+			//
+			// handle orderbook data
+			//
+			//
 			case b := <-handlarC:
 				var resp WsDepthEvent
 				if err := json.Unmarshal(b, &resp); err != nil {
@@ -354,16 +398,21 @@ func main() {
 				}
 
 				book, _ := orderbook.GetBook(resp.Symbol)
-				book.LastUpdated = time.Now()
+				// book.LastUpdated = time.Now()
 				for _, v := range resp.Asks {
 					p, _ := strconv.ParseFloat(v[0].(string), 64)
 					a, _ := strconv.ParseFloat(v[1].(string), 64)
-					book.Asks.Add(p, a)
+					// book.Asks.Add(p, a)
+					book.Add(p, a, false)
 				}
 				for _, v := range resp.Bids {
 					p, _ := strconv.ParseFloat(v[0].(string), 64)
 					a, _ := strconv.ParseFloat(v[1].(string), 64)
-					book.Bids.Add(p, a)
+					// book.Bids.Add(p, a)
+					book.Add(p, a, true)
+				}
+				if debug {
+					log.Printf("%-12s %-12d %-12d\n", resp.Symbol, len(book.Asks), len(book.Bids))
 				}
 
 				// continue if to early
@@ -380,11 +429,13 @@ func main() {
 						if asset != set.asset {
 							continue
 						}
-						// check if balance is worth more than mimimum
 						free := balance.Balances[asset].Free * 0.9
 						_pair, err := E.Pair(asset + "USDT")
 						if err == nil {
 							free *= tickers[_pair.Name]
+						}
+						if size < free {
+							free = size
 						}
 						if minimum > free {
 							continue
@@ -401,7 +452,7 @@ func main() {
 						// }(set)
 						// // -------------------------------------
 
-						if order := set.calcStepProfits(100); order != nil {
+						if order := set.calcStepProfits(size); order != nil {
 
 							var err error
 							var _pair = [3]string{order.a.Name, order.b.Name, order.c.Name}
@@ -417,10 +468,13 @@ func main() {
 
 								tries := 0
 								minAmount := _amount[i] - (_amount[i] * 0.05) // 5% smaller
+
+								//
 								// retry func
+								//
 								for _amount[i] > minAmount {
 									// send market order
-									log.Printf("%-6s %-12v     %-12s\n", Side[side], _amount[i], _pair[i])
+									log.Printf("%-12s %-12v %-12s\n", Side[side], _amount[i], _pair[i])
 									err = E.SendMarket(_pair[i], Side[side], _amount[i])
 									if err == nil {
 										break
@@ -429,7 +483,7 @@ func main() {
 									if containList(err.Error(), []string{"dial tcp", "too many"}) {
 										if i == 0 || tries > 9 {
 											log.Println("ERROR:", err.Error())
-											lastTrade = time.Now().Add(sec * time.Second)
+											lastTrade = time.Now().Add(time.Minute)
 											return
 										}
 										tries++
@@ -461,8 +515,8 @@ func main() {
 							if err != nil {
 								log.Fatalln(err.Error())
 							}
-							// success! dont look for new trades for x minutes
-							lastTrade = time.Now().Add(sec * time.Second)
+							// success! paus trading for a minute
+							lastTrade = time.Now().Add(time.Minute)
 						}
 					}
 				}
@@ -474,7 +528,9 @@ func main() {
 
 	// subscribe to orderbooks
 	for _, pair := range pairs {
-		go subscribePair(pair, handlarC)
+		// go subscribePair(pair, handlarC)
+
+		go E.StreamOrderbook2(pair, shutdown, updatedC)
 	}
 
 	log.Println("init done! running...")
@@ -494,9 +550,6 @@ func subscribePair(name string, handler chan<- []byte) {
 		return
 	}
 	defer c.Close()
-	if verbose {
-		log.Println("subscribed to", name)
-	}
 
 	// go keepAlive(c, time.Minute)
 
@@ -509,7 +562,8 @@ func subscribePair(name string, handler chan<- []byte) {
 
 		_, message, err := c.ReadMessage()
 		if err != nil {
-			log.Printf("reconnecting %s due to: %v", name, err.Error())
+			log.Printf("reconnecting %s due to: %v\n", name, err.Error())
+
 			orderbook.Delete(name)
 			go subscribePair(name, handler)
 			break
