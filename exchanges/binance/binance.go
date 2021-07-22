@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/slicken/arbitrager/balance"
 	"github.com/slicken/arbitrager/client"
 	"github.com/slicken/arbitrager/config"
@@ -22,7 +23,7 @@ import (
 	"github.com/slicken/arbitrager/orderbook"
 	"github.com/slicken/arbitrager/orders"
 	"github.com/slicken/arbitrager/utils"
-	"github.com/slicken/history2"
+	"github.com/slicken/history"
 )
 
 const (
@@ -31,32 +32,33 @@ const (
 
 	exchangeInfo = "/api/v1/exchangeInfo"
 	account      = "/api/v3/account"
-	depth        = "/api/v1/depth"
+	depth        = "/api/v3/depth"
 	ticker       = "/api/v3/ticker/price"
 	tickerAll    = "/api/v1/ticker/allPrices"
 	tickerBook   = "/api/v3/ticker/bookTicker"
 	newOrder     = "/api/v3/order"
+
+	maxRate = 1200
 )
 
 // Binance is exchange wrapper
 type Binance struct {
-	exchanges.Ex
+	exchanges.Exchange
+	// *client.RateLimit
 }
 
 var info ExchangeInfo
 
 // Setup takes in exchange configuration and sets params
-func (e *Binance) Setup(c config.ExchangeConfig) {
+func (e *Binance) Init(c config.ExchangeConfig) error {
 	e.Name = c.Name
 	e.Key = c.Key
 	e.Secret = c.Secret
 	e.Pairs = make(map[string]currencie.Pair)
 	e.Requester = client.NewRequester(e.Name, client.NewHTTPClient(client.DefaultHTTPTimeout))
 	e.Requester.Debug = false
-}
-
-// Init initalizes Exchange and stores settings in memory
-func (e *Binance) Init() error {
+	// test
+	// e.RateLimit = client.NewRateLimit(1200)
 	if err := e.SetPairs(); err != nil {
 		return err
 	}
@@ -169,52 +171,58 @@ func (e *Binance) SendHTTPRequest(method, url string, auth bool, result interfac
 }
 
 // GetOrderbook Wrapper updates and returns the orderbook for a currency pair
-func (e *Binance) GetOrderbook(pair string, limit int64) (orderbook.Book, error) {
-	// sym, err := e.Pair(pair)
-	// if err != nil {
-	// 	return orderbook.Book{}, fmt.Errorf("%s not found", pair)
-	// }
-	// resp := OrderBookData{}
-	book := orderbook.Book{}
-	// book.Name = pair
+func (e *Binance) GetOrderbook(pair string, limit int64) (*orderbook.Book, error) {
+	sym, err := e.Pair(pair)
+	if err != nil {
+		return nil, fmt.Errorf("%s not found", pair)
+	}
+	resp := OrderBookData{}
 
-	// if limit == 0 || limit > 100 {
-	// 	limit = 100
-	// }
-	// params := url.Values{}
-	// params.Set("symbol", sym.Name)
-	// params.Set("limit", strconv.FormatInt(limit, 10))
-	// url := fmt.Sprintf("%s%s?%s", apiURL, depth, params.Encode())
+	e.Lock()
+	book, _ := orderbook.GetBook(pair)
+	e.Unlock()
 
-	// err = e.SendHTTPRequest("GET", url, false, &resp)
-	// if err != nil {
-	// 	return book, err
-	// }
-	// for _, asks := range resp.Asks {
-	// 	item := orderbook.Item{}
-	// 	for i, v := range asks.([]interface{}) {
-	// 		switch i {
-	// 		case 0:
-	// 			item.Price, _ = strconv.ParseFloat(v.(string), 64)
-	// 		case 1:
-	// 			item.Amount, _ = strconv.ParseFloat(v.(string), 64)
-	// 		}
-	// 		book.AddAsk(item)
-	// 	}
-	// }
-	// for _, bids := range resp.Bids {
-	// 	item := orderbook.Item{}
-	// 	for i, v := range bids.([]interface{}) {
-	// 		switch i {
-	// 		case 0:
-	// 			item.Price, _ = strconv.ParseFloat(v.(string), 64)
-	// 		case 1:
-	// 			item.Amount, err = strconv.ParseFloat(v.(string), 64)
-	// 		}
-	// 		book.AddBid(item)
-	// 	}
-	// }
-	// orderbook.Update(e.Name, pair, book)
+	if limit == 0 || limit > 1000 {
+		limit = 1000
+	}
+
+	params := url.Values{}
+	params.Set("symbol", sym.Name)
+	params.Set("limit", strconv.FormatInt(limit, 10))
+	url := fmt.Sprintf("%s%s?%s", apiURL, depth, params.Encode())
+
+	err = e.SendHTTPRequest("GET", url, false, &resp)
+	if err != nil {
+		return book, err
+	}
+
+	for _, asks := range resp.Asks {
+		var p float64
+		var a float64
+		for i, v := range asks.([]interface{}) {
+			switch i {
+			case 0:
+				p, _ = strconv.ParseFloat(v.(string), 64)
+			case 1:
+				a, _ = strconv.ParseFloat(v.(string), 64)
+			}
+			book.Add(p, a, false)
+		}
+	}
+	for _, bids := range resp.Bids {
+		var p float64
+		var a float64
+		for i, v := range bids.([]interface{}) {
+			switch i {
+			case 0:
+				p, _ = strconv.ParseFloat(v.(string), 64)
+			case 1:
+				a, err = strconv.ParseFloat(v.(string), 64)
+			}
+			book.Add(p, a, true)
+		}
+	}
+
 	return book, nil
 }
 
@@ -350,64 +358,71 @@ func (e *Binance) SendCancel(pair string, id int64) error {
 
 // StreamOrderbook subscribes to symbols orderbooks and updates itcontiniously
 // func (e *Binance) StreamOrderbook(pair string, c chan<- orderbook.Event) error {
-func (e *Binance) StreamOrderbook(pair string) error {
-	// sym, err := e.Pair(pair)
-	// if err != nil {
-	// 	return fmt.Errorf("%s not found", pair)
-	// }
+func (e *Binance) StreamOrderbook(pair string, done <-chan bool, notifyCh chan<- string) error {
+	sym, err := e.Pair(pair)
+	if err != nil {
+		return fmt.Errorf("%s not found\n", pair)
+	}
 
-	// url := fmt.Sprintf(wsURL+"/%s@depth", strings.ToLower(sym.Name))
-	// ws, _, err := websocket.DefaultDialer.Dial(url, nil)
-	// if err != nil {
-	// 	log.Fatal("dial:", err)
-	// }
-	// log.Printf("subscribed to %s %s orderbook stream.\n", e.Name, sym.Name)
+	url := fmt.Sprintf(wsURL+"/%s@depth", strings.ToLower(sym.Name))
+	ws, _, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		return fmt.Errorf("dial: %v\n", err)
+	}
+	log.Printf("subscribed to %s %s orderbook\n", e.Name, sym.Name)
 
-	// book, _ := orderbook.GetBook(e.Name, pair)
-	// // book.Updates = make(chan bool, 100)
-	// orderbook.Update(e.Name, sym.Name, book)
+	go func() {
+		defer func() {
+			e.Lock()
+			orderbook.Delete(pair)
+			e.Unlock()
+			ws.Close()
+		}()
 
-	// go func() {
-	// 	defer ws.Close()
-	// 	// defer close(book.Updates)
+		for {
+			select {
+			case <-done:
+				break
+			default:
+			}
 
-	// 	for {
-	// 		_, msg, err := ws.ReadMessage()
-	// 		if err != nil {
-	// 			fmt.Printf("%s wsError: %s", e.Name, err)
-	// 			return
-	// 		}
-	// 		resp := struct {
-	// 			Type     string          `json:"e"`
-	// 			Time     float64         `json:"E"`
-	// 			Symbol   string          `json:"s"`
-	// 			UpdateID int             `json:"u"`
-	// 			Bids     [][]interface{} `json:"b"`
-	// 			Asks     [][]interface{} `json:"a"`
-	// 		}{}
-	// 		if err := json.Unmarshal(msg, &resp); err != nil {
-	// 			fmt.Println(err)
-	// 			return
-	// 		}
-	// 		for _, v := range resp.Asks {
-	// 			item := orderbook.Item{}
-	// 			item.Price, _ = strconv.ParseFloat(v[0].(string), 64)
-	// 			item.Amount, _ = strconv.ParseFloat(v[1].(string), 64)
-	// 			book.AddAsk(item)
+			_, b, err := ws.ReadMessage()
+			if err != nil {
+				log.Printf("ws error %s: %v\n", pair, err.Error())
+				break
+			}
+			resp := struct {
+				Type     string          `json:"e"`
+				Time     float64         `json:"E"`
+				Symbol   string          `json:"s"`
+				UpdateID int             `json:"u"`
+				Bids     [][]interface{} `json:"b"`
+				Asks     [][]interface{} `json:"a"`
+			}{}
 
-	// 			fmt.Println(resp.Symbol, item)
-	// 		}
-	// 		for _, v := range resp.Bids {
-	// 			item := orderbook.Item{}
-	// 			item.Price, _ = strconv.ParseFloat(v[0].(string), 64)
-	// 			item.Amount, _ = strconv.ParseFloat(v[1].(string), 64)
-	// 			book.AddBid(item)
+			if err := json.Unmarshal(b, &resp); err != nil {
+				log.Println(err.Error())
+				continue
+			}
 
-	// 			fmt.Println(resp.Symbol, item)
-	// 		}
-	// 		orderbook.Update(e.Name, sym.Name, book)
-	// 	}
-	// }()
+			book, _ := orderbook.GetBook(resp.Symbol)
+			// book.LastUpdated = time.Now()
+			for _, v := range resp.Asks {
+				p, _ := strconv.ParseFloat(v[0].(string), 64)
+				a, _ := strconv.ParseFloat(v[1].(string), 64)
+				// book.Asks.Add(p, a)
+				book.Add(p, a, false)
+			}
+			for _, v := range resp.Bids {
+				p, _ := strconv.ParseFloat(v[0].(string), 64)
+				a, _ := strconv.ParseFloat(v[1].(string), 64)
+				// book.Bids.Add(p, a)
+				book.Add(p, a, true)
+			}
+			notifyCh <- resp.Symbol
+		}
+	}()
+
 	return nil
 }
 
@@ -500,7 +515,7 @@ func (e *Binance) UpdatePairs() error {
 }
 
 // GetKlines new data from Binance exchange
-func (e Binance) GetKlines(symbol, timeframe string, limit int) (history2.Bars, error) {
+func (e *Binance) GetKlines(symbol, timeframe string, limit int) (history.Bars, error) {
 	path := fmt.Sprintf(
 		"https://api.binance.com/api/v1/klines?symbol=%s&interval=%s&limit=%v",
 		strings.ToUpper(symbol), strings.ToLower(timeframe), limit)
@@ -520,11 +535,11 @@ func (e Binance) GetKlines(symbol, timeframe string, limit int) (history2.Bars, 
 		return nil, err
 	}
 
-	var bars history2.Bars
+	var bars history.Bars
 	// convert into history.Bars
 	for i, v := range tmp {
 
-		bar := history2.Bar{}
+		bar := history.Bar{}
 		bar.Time = time.Unix(int64(v[0].(float64))/1000, 0) // .UTC()
 		bar.Open, err = strconv.ParseFloat(v[1].(string), 64)
 		if err != nil {
@@ -548,39 +563,72 @@ func (e Binance) GetKlines(symbol, timeframe string, limit int) (history2.Bars, 
 		}
 
 		// insert
-		bars = append(history2.Bars{bar}, bars...)
+		bars = append(history.Bars{bar}, bars...)
 	}
 
 	return bars, nil
 }
 
-// -------------- NEW GET SOME DATA ------------------
-
-const trades = "/api/v3/myTrades"
-
-func (e *Binance) LastTrades(symbol string, len int64) (interface{}, error) {
-	var resp interface{}
-
-	params := url.Values{}
-	params.Set("symbol", strings.ToUpper(symbol))
-	params.Set("limit", strconv.FormatInt(len, 10))
-	url := fmt.Sprintf("%s%s?%s", apiURL, trades, params.Encode())
-
-	// url := "https://api.binance.com/api/v3/myTrades?symbol=BTCUSDT&limit=2"
-
-	err := e.SendHTTPRequest("GET", url, true, &resp)
-
+// StreamOrderbook subscribes to symbols orderbooks and updates itcontiniously
+// func (e *Binance) StreamOrderbook(pair string, c chan<- orderbook.Event) error {
+func (e *Binance) StreamOrderbook2(pair string, done <-chan bool, notifyCh chan<- string) error {
+	sym, err := e.Pair(pair)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("%s not found\n", pair)
 	}
 
-	return resp, nil
-	// s, err := json.MarshalIndent(resp, "", "\t")
-	// if err != nil {
-	// 	return nil, err
-	// }
+	url := fmt.Sprintf(wsURL+"/ws/%s@depth20@100ms", strings.ToLower(sym.Name))
+	ws, _, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		return fmt.Errorf("dial: %v\n", err)
+	}
 
-	// return sfmt.Println(string(s))
+	defer func() {
+		e.Lock()
+		orderbook.Delete(pair)
+		e.Unlock()
+		ws.Close()
+	}()
+
+	// e.Lock()
+	book, _ := orderbook.GetBook(sym.Name)
+	// e.Unlock()
+
+	for {
+		select {
+		case <-done:
+			break
+		default:
+		}
+
+		_, b, err := ws.ReadMessage()
+		if err != nil {
+
+			log.Printf("ws error %s: %v\n", pair, err.Error())
+			break
+		}
+
+		var resp DepthResponse
+		if err := json.Unmarshal(b, &resp); err != nil {
+			log.Println(err.Error())
+			continue
+		}
+
+		for _, v := range resp.Asks {
+			p, _ := strconv.ParseFloat(v[0].(string), 64)
+			a, _ := strconv.ParseFloat(v[1].(string), 64)
+			// book.Asks.Add(p, a)
+			book.Add(p, a, false)
+		}
+		for _, v := range resp.Bids {
+			p, _ := strconv.ParseFloat(v[0].(string), 64)
+			a, _ := strconv.ParseFloat(v[1].(string), 64)
+			// book.Bids.Add(p, a)
+			book.Add(p, a, true)
+		}
+
+		notifyCh <- sym.Name
+	}
+
+	return nil
 }
-
-// var Exchangeinfo ExchangeInfo
