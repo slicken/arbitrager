@@ -189,3 +189,19 @@ type DepthResponse struct {
 	Bids         [][]interface{} `json:"bids"`
 	Asks         [][]interface{} `json:"asks"`
 }
+
+type MyTrades struct {
+	Symbol          string `json:"symbol"`
+	Id              int64  `json:"id"`
+	OrderID         int64  `json:"orderId"`
+	OrderListID     int64  `json:"orderListId"` //Unless OCO, the value will always be -1
+	Price           string `json:"price"`
+	Quantity        string `json:"qty"`
+	QuoteQty        string `json:"quoteQty"`
+	Commmission     string `json:"commission"`
+	CommissionAsset string `json:"commissionAsset"`
+	Time            int64  `json:"time"`
+	IsBuyer         bool   `json:"isBuyer"`
+	IsMaker         bool   `json:"isMaker"`
+	IsBestMatch     bool   `json:"isBestMatch"`
+}

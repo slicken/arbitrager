@@ -14,7 +14,7 @@ import (
 type side byte
 
 const (
-	MAKER_FEE      = 0.00105
+	MAKER_FEE      = 0.00101
 	buy       side = 0
 	sell      side = 1
 )
@@ -293,7 +293,7 @@ func (s Set) calcDepthProfits(amount float64) (float64, float64, float64, float6
 	for i, _action := range s.route {
 		book, _ := orderbook.GetBook(pair[i])
 
-		//		 buyFee=BASE_QUOTE=sellFee				next=what orders will use
+		//		   buyFee=BASE_QUOTE=sellFee				  next=is amount orders will use
 		// 		action	pair			price			[]next			nextAmount		correct			comment
 		// loop 				300
 		// 	0	0BUY	PSGUSDT		/	16.543000	=	18,134558424	18,116423865	18,134558424	buy  amount

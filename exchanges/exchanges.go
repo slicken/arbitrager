@@ -47,6 +47,7 @@ type I interface {
 	SendCancel(pair string, id int64) error
 	OrderStatus(id int64) (string, error)
 	OrderFills(id int64) (float64, error)
+	LastTrade(symbol string, len int64) (price float64, amount float64, err error)
 	// WS
 	StreamBookDiff(pair string, done <-chan bool, notify chan<- string) error  //ws:
 	StreamBookDepth(pair string, done <-chan bool, notify chan<- string) error //ws:

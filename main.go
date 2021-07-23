@@ -44,17 +44,18 @@ var (
 func appInfo() {
 	fmt.Println(`Usage: ./` + appName + ` [-a <assets>|--all] [-e <assets>] [-t <percent>] [-n <uint>] [-m <USD>]
              [--100] [--CPU <cores>] [--verbose] [-l <uint>] [--sec <uint>]
-Arguments        Examples
-  -a, --asset    BTC,ETH,BNB              assets its to work with
-      --all                               all assets with balance
-  -e, --except   DOT,USDC                 except thease assets       (default empty)
-  -t, --target   0.99                     target percent             (default   1.5)
-  -n, --decrease 2                        decrease balance N times   (default     1)
-  -s, --size     1000                     tradesize (in USD)         (default   100)
-  -l, --limit    300                      limit orderbooks           (default   200)
-      --diff                              orderbook diff (1sec)      (default false)
-      --download                          download orderbook         (default false)
-      --CPU      2                        limit cpu cores            (default   max)
+
+Arguments       Default   Example   Info
+  -a, --asset             USDT,BTC  enter assets to arbitrage. separateor ',' if more than one
+      --all                         arbitrage all assets with a balance
+  -e, --except            USDC      except thease assets
+  -t, --target    1.5     2         minimum target in percentage to trade
+  -s, --size      500     100       tradesize mearesured in USD
+  -n, --decrease  1024    2         also look for arbitrages with a decrease balance N times
+  -l, --limit     false             limit maximum connections to orderbooks
+      --diff      false             streams orderbook diffs (1s) instead of snapshots (100ms)
+      --download  max     2         downloads orderbook, for '--diff' mode only
+      --CPU                         limit usage of cpu cores
       --verbose
   -h  --help
                                        -- slk prod 2021 --`)
@@ -149,6 +150,7 @@ func main() {
 					appInfo()
 				}
 				limit = v
+				log.Println("limit orderbooks to", limit)
 
 			case "--diff":
 				obdiff = true
@@ -188,9 +190,6 @@ func main() {
 	// HANDLE INTERRUPT SIGNAL
 	HandleInterrupt()
 
-	// LOG TO FILE
-	utils.LogToFile(appName)
-
 	// LIMIT CPU CORES
 	if cpu != 0 {
 		runtime.GOMAXPROCS(cpu)
@@ -207,7 +206,8 @@ func main() {
 	}
 	log.Println("connected to", E.GetName())
 
-	time.Sleep(time.Second)
+	// LOG TO FILE
+	utils.LogToFile(appName)
 
 	// PREPARE DATA ---------------------------------
 
@@ -261,7 +261,6 @@ func main() {
 
 	if len(pairs) > limit {
 		pairs = pairs[:limit]
-		log.Println("limit orderbooks to", limit)
 	}
 
 	log.Printf("connecting to %d orderbooks --> %s", len(pairs), pairs)
@@ -288,7 +287,6 @@ func main() {
 				if err := E.UpdateBalance(); err != nil {
 					log.Println("failed to uodate balance:", err.Error())
 				}
-
 			//
 			// computeC
 			//
@@ -307,21 +305,21 @@ func main() {
 							continue
 						}
 
-						// free := balance.Balances[asset].Free * 0.9
-						// _pair, err := E.Pair(asset + "USDT")
-						// if err == nil {
-						// 	free *= tickers[_pair.Name]
-						// }
-						// if size < free {
-						// 	free = size
-						// }
-						// if minimum > free {
-						// 	continue
-						// }
+						free := balance.Balances[asset].Free * 0.9
+						_pair, err := E.Pair(asset + "USDT")
+						if err == nil {
+							free *= tickers[_pair.Name]
+						}
+						if size < free {
+							free = size
+						}
+						if minimum > free {
+							continue
+						}
 
 						if order := set.calcStepProfits(size); order != nil {
 							// fmt.Println("orderC <-", order)
-							// orderC <- *order
+							orderC <- *order
 						}
 					}
 				}
@@ -330,51 +328,47 @@ func main() {
 			// send orders
 			//
 			case order := <-orderC:
+
 				var err error
 				var _pair = [3]string{order.a.Name, order.b.Name, order.c.Name}
 				var _amount = [3]float64{order.next1, order.next2, order.next3}
 				// var amount = _amount
 				for i, side := range order.route {
-
-					// if we bought at a worse price than intended
-					// we can remove diff from amount
-					// if i > 0 {
-					// 	amount[i] += ((amount[i] - _amount[i]) / amount[i])
-					// }
-
 					tries := 0
-					minAmount := _amount[i] - (_amount[i] * 0.05) // 5% smaller
 
-					//
-					// retry func
-					//
-					for _amount[i] > minAmount {
+					for 5 > tries {
 						// send market order
 						log.Printf("%-12s %-12v %-12s\n", Side[side], _amount[i], _pair[i])
 						err = E.SendMarket(_pair[i], Side[side], _amount[i])
 						if err == nil {
 							break
 						}
-						// on balance error - decrease amount a bit
 						if containList(err.Error(), []string{"dial tcp", "too many"}) {
-							if i == 0 || tries > 9 {
+							if i == 0 || tries > 5 {
 								log.Println("ERROR:", err.Error())
 								lastTrade = time.Now().Add(time.Minute)
 								return
 							}
-							tries++
-						} else {
-							// decrease amount and try again
-							_amount[i] -= (_amount[i] * 0.001)
 						}
-						log.Println("ERROR:", err.Error())
+						tries++
+						if i > 0 {
+							tries2 := 0
+							for 5 > tries2 {
+								if _, a, err := E.LastTrade(_pair[i-1], 5); err == nil {
+									_amount[i] = a
+									break
+								}
+								log.Println("ERROR:", err.Error())
+								tries2++
+							}
+						}
 					}
-					// exit program if we get here. > 10 errors
+					// exit program if we get here. > 5 tries
 					if err != nil {
 						log.Fatalln(err.Error())
 					}
-
 				}
+
 				// update balance
 				tries := 0
 				delay := 100 * time.Microsecond
@@ -411,7 +405,7 @@ func main() {
 
 	}
 
-	log.Println("init done!")
+	log.Println("-------------------- init done!")
 	log.Println("running...")
 
 	<-shutdown

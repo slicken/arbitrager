@@ -37,6 +37,7 @@ const (
 	tickerAll    = "/api/v1/ticker/allPrices"
 	tickerBook   = "/api/v3/ticker/bookTicker"
 	newOrder     = "/api/v3/order"
+	trades       = "/api/v3/myTrades"
 
 	maxRate = 1200
 )
@@ -626,4 +627,76 @@ func (e *Binance) GetKlines(symbol, timeframe string, limit int) (history.Bars, 
 	}
 
 	return bars, nil
+}
+
+func (e *Binance) LastTrade(symbol string, limit int64) (float64, float64, error) {
+	resp := []MyTrades{}
+	params := url.Values{}
+	params.Set("symbol", strings.ToUpper(symbol))
+	params.Set("limit", strconv.FormatInt(limit, 10))
+	url := fmt.Sprintf("%s%s?%s", apiURL, trades, params.Encode())
+	err := e.SendHTTPRequest("GET", url, true, &resp)
+	var price, amount float64
+	if err != nil {
+		return price, amount, err
+	}
+
+	// -----
+
+	// fmt.Println("len", len(resp))
+
+	// for i, v := range resp {
+	// 	if i > 0 && resp[i].Time != resp[0].Time {
+	// 		break
+	// 	}
+	// 	if price, err = strconv.ParseFloat(v.Price, 64); err != nil {
+	// 		log.Fatalln("pr", err)
+	// 	}
+	// 	if v.IsBuyer {
+	// 		q, err := strconv.ParseFloat(v.Quantity, 64)
+	// 		if err != nil {
+	// 			log.Fatalln("qty", err)
+	// 		}
+	// 		amount += q
+	// 	} else {
+	// 		q, err := strconv.ParseFloat(v.Quantity, 64)
+	// 		if err != nil {
+	// 			log.Fatalln("qty", err)
+	// 		}
+	// 		amount += q
+	// 	}
+
+	// }
+	// fmt.Println("price", price, "qty", amount)
+	// fmt.Println("--------")
+	// price = 0
+	// amount = 0
+
+	l := len(resp) - 1
+	for i := l; i >= 0; i-- {
+		if i < l && resp[i].Time != resp[l].Time {
+			break
+		}
+		if price, err = strconv.ParseFloat(resp[i].Price, 64); err != nil {
+			log.Fatalln("pr", err)
+		}
+		if resp[i].IsBuyer {
+			q, err := strconv.ParseFloat(resp[i].Quantity, 64)
+			if err != nil {
+				log.Fatalln("qty", err)
+			}
+			amount += q
+		} else {
+			q, err := strconv.ParseFloat(resp[i].Quantity, 64)
+			if err != nil {
+				log.Fatalln("qty", err)
+			}
+			amount += q
+		}
+	}
+
+	fmt.Println("price", price, "qty", amount)
+	fmt.Println("--------")
+
+	return price, amount, nil
 }

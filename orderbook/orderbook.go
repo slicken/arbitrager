@@ -19,7 +19,6 @@ type Book struct {
 	Bids        bids      `json:"bids"`
 	Asks        asks      `json:"asks"`
 	LastUpdated time.Time `json:"last_updated"`
-	pool        *sync.Pool
 }
 
 type orders map[float64]float64
@@ -34,14 +33,10 @@ type Item struct {
 
 func newBook(pair string) *Book {
 	book := &Book{
-		Name:        pair,
-		Bids:        make(bids, DEPTH),
-		Asks:        make(asks, DEPTH),
-		LastUpdated: time.Time{},
-		pool: &sync.Pool{New: func() interface{} {
-			v := make([]float64, 0, DEPTH)
-			return &v
-		}},
+		Name: pair,
+		Bids: make(bids, DEPTH),
+		Asks: make(asks, DEPTH),
+		// LastUpdated: time.Time{},
 	}
 	Orderbook[pair] = book
 
@@ -90,6 +85,7 @@ func Delete(name string) {
 	delete(Orderbook, name)
 }
 
+// Reset all Asks and Bids
 func (b *Book) Reset() {
 	mu.Lock()
 	defer mu.Unlock()
@@ -98,7 +94,7 @@ func (b *Book) Reset() {
 	b.Bids = make(bids, DEPTH)
 }
 
-// Reset Asks
+// Reset all Asks
 func (l *asks) Reset() {
 	mu.Lock()
 	defer mu.Unlock()
@@ -106,7 +102,7 @@ func (l *asks) Reset() {
 	(*l) = make(asks, DEPTH)
 }
 
-// Reset Bids
+// Reset all Bids
 func (l *bids) Reset() {
 	mu.Lock()
 	defer mu.Unlock()
@@ -138,7 +134,7 @@ func (l *bids) Add(price, amount float64) {
 	}
 }
 
-// Add Ask or Bid
+// Add a Ask or Bid
 func (b *Book) Add(price, amount float64, bid bool) {
 	mu.Lock()
 	defer mu.Unlock()
@@ -156,7 +152,6 @@ func (b *Book) Add(price, amount float64, bid bool) {
 			b.Bids[price] = amount
 		}
 	}
-	// b.Limit()
 	b.LastUpdated = time.Now()
 }
 
