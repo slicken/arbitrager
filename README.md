@@ -45,18 +45,7 @@ Arguments       Default   Example   Info
       --all                         arbitrage all assets with a balance
   -e, --except            USDC      except thease assets
   -t, --target    1.5     2         minimum target in percentage to trade
- 
- # TODO:
-
-*Make orderbook lockless<br>
-Optimize preformance<br>
-add Kucoin exchange support<br>
-add FTX exchange support<br>
-and more exchange supports...<br>
-Buy, Sell cross exchange strategy*<br><br>
-
-
-s, --size      500     100       tradesize mearesured in USD
+  -s, --size      500     100       tradesize mearesured in USD
   -n, --decrease  1024    2         also look for arbitrages with a decrease balance N times
   -l, --limit     false             limit maximum connections to orderbooks
       --diff      false             streams orderbook diffs (1s) instead of snapshots (100ms)
