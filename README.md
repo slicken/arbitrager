@@ -55,9 +55,9 @@ Arguments       Default   Example   Info
   -h  --help
                                        -- slk prod 2021 --
 
-slicken@slk:~/go/src/github.com/slicken/arbitrager$ ./app -a USDT -t 1 -s 100 -l 200
+slicken@slk:~/go/src/github.com/slicken/arbitrager$ ./app -a USDT -t .75 -s 100 -l 200
 2021/07/23 16:03:17 tradesize (in USD) 100
-2021/07/23 16:03:17 target is 1.00%
+2021/07/23 16:03:17 target is 0.75%
 2021/07/23 16:03:17 limit orderbooks to 200
 2021/07/23 16:03:17 reading config...
 2021/07/23 16:03:18 connected to binance
