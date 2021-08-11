@@ -15,6 +15,14 @@ type Balance struct {
 	LastUpdated time.Time `json:"last_updated"`
 }
 
+func Get(asset string) *Balance {
+	balance, ok := Balances[asset]
+	if !ok {
+		return nil
+	}
+	return balance
+}
+
 // Update the Orderbook
 func (b *Balance) Update(curr string) {
 	Balances[curr] = b

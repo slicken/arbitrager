@@ -37,6 +37,7 @@ const (
 	tickerAll    = "/api/v1/ticker/allPrices"
 	tickerBook   = "/api/v3/ticker/bookTicker"
 	newOrder     = "/api/v3/order"
+	newOrderTest = "/api/v3/order/test"
 	trades       = "/api/v3/myTrades"
 
 	maxRate = 1200
@@ -91,6 +92,10 @@ func (e *Binance) SetPairs() error {
 		} else {
 			p.Enabled = false
 		}
+		// temp
+		i := getInfoIndex(v.Symbol)
+		p.FilterPrice = info.Symbols[i].Filters[0].TickSize
+		p.FilterSize = info.Symbols[i].Filters[2].StepSize
 		e.Pairs[p.Pair()] = p
 	}
 
@@ -265,16 +270,56 @@ func (e *Binance) NewOrder(o NewOrderRequest) (NewOrderResponse, error) {
 	params.Set("symbol", o.Symbol)
 	params.Set("side", o.Side)
 	params.Set("type", o.TradeType)
-	params.Set("quantity", strconv.FormatFloat(o.Quantity, 'f', -1, 64))
 	if o.TradeType != "MARKET" {
 		params.Set("timeInForce", o.TimeInForce)
 		params.Set("price", strconv.FormatFloat(o.Price, 'f', -1, 64))
 	}
-	if o.StopPrice != 0.0 {
+	if o.Quantity != 0 {
+		params.Set("quantity", strconv.FormatFloat(o.Quantity, 'f', -1, 64))
+	}
+	if o.QuoteQuantity != 0 {
+		params.Set("quoteOrderQty", strconv.FormatFloat(o.QuoteQuantity, 'f', -1, 64))
+	}
+	if o.StopPrice != 0 {
 		params.Set("stopPrice", strconv.FormatFloat(o.StopPrice, 'f', -1, 64))
 	}
 
 	url := fmt.Sprintf("%s%s?%s", apiURL, newOrder, params.Encode())
+	err := e.SendHTTPRequest("POST", url, true, &resp)
+	if err != nil {
+		return resp, err
+	}
+	if resp.Code != 0 {
+		return resp, fmt.Errorf("%v %s", resp.Code, resp.Msg)
+	}
+	return resp, nil
+}
+
+// NewOrder sends a new order to Binance
+func (e *Binance) NewOrderTest(o NewOrderRequest) (NewOrderResponse, error) {
+	resp := NewOrderResponse{}
+
+	params := url.Values{}
+	params.Set("symbol", o.Symbol)
+	params.Set("side", o.Side)
+	params.Set("type", o.TradeType)
+	if o.TradeType != "MARKET" {
+		params.Set("timeInForce", o.TimeInForce)
+		params.Set("price", strconv.FormatFloat(o.Price, 'f', -1, 64))
+	}
+	if o.QuoteQuantity != 0 {
+		params.Set("quoteOrderQty", strconv.FormatFloat(o.QuoteQuantity, 'f', -1, 64))
+		fmt.Printf("o.QuoteQuantity %s\n", params.Get("quoteOrderQty"))
+	}
+	if o.Quantity != 0 {
+		params.Set("quantity", strconv.FormatFloat(o.Quantity, 'f', -1, 64))
+		fmt.Printf("o.quantity %s\n", params.Get("quantity"))
+	}
+	if o.StopPrice != 0 {
+		params.Set("stopPrice", strconv.FormatFloat(o.StopPrice, 'f', -1, 64))
+	}
+
+	url := fmt.Sprintf("%s%s?%s", apiURL, newOrderTest, params.Encode())
 	err := e.SendHTTPRequest("POST", url, true, &resp)
 	if err != nil {
 		return resp, err
@@ -302,7 +347,7 @@ func (e *Binance) SendLimit(pair, side string, amount, price float64) error {
 		Symbol:      sym.Name,
 		Side:        strings.ToUpper(side),
 		TradeType:   "LIMIT",
-		Quantity:    utils.RoundPlus(amount, utils.CountDecimal(info.Symbols[i].Filters[2].StepSize)),
+		Quantity:    utils.FloatImitate(amount, info.Symbols[i].Filters[2].StepSize),
 		Price:       utils.RoundPlus(price, utils.CountDecimal(info.Symbols[i].Filters[0].TickSize)),
 		TimeInForce: "GTC",
 	})
@@ -314,26 +359,64 @@ func (e *Binance) SendLimit(pair, side string, amount, price float64) error {
 }
 
 // SendMarket Wrapper returns marketorder
-func (e *Binance) SendMarket(pair, side string, amount float64) error {
+func (e *Binance) SendMarket(pair, side string, amount, quoteAmount float64) (float64, error) {
 	sym, err := e.Pair(pair)
 	if err != nil {
-		return fmt.Errorf("%s not found", pair)
+		return 0, fmt.Errorf("%s not found", pair)
 	}
 	i := getInfoIndex(sym.Name)
 	if i < 0 {
-		return fmt.Errorf("%s info not found", sym.Name)
+		return 0, fmt.Errorf("%s info not found", sym.Name)
 	}
 
-	_, err = e.NewOrder(NewOrderRequest{
-		Symbol:    sym.Name,
-		Side:      strings.ToUpper(side),
-		TradeType: "MARKET",
-		Quantity:  utils.RoundPlus(amount, utils.CountDecimal(info.Symbols[i].Filters[2].StepSize)),
+	var resp NewOrderResponse
+	resp, err = e.NewOrder(NewOrderRequest{
+		Symbol:        sym.Name,
+		Side:          strings.ToUpper(side),
+		TradeType:     "MARKET",
+		Quantity:      utils.FloatImitate(amount, info.Symbols[i].Filters[2].StepSize),
+		QuoteQuantity: utils.FloatImitate(quoteAmount, info.Symbols[i].Filters[2].StepSize),
 	})
 	if err != nil {
-		return err
+		return 0, err
 	}
-	return nil
+
+	var qty float64
+	for _, v := range resp.Fills {
+		if resp.Side == "BUY" {
+			qty += v.Qty
+			if v.CommissionAsset == sym.Base {
+				qty -= v.Commission
+			}
+		} else {
+			qty += (v.Price * v.Qty)
+			if v.CommissionAsset == sym.Quote {
+				qty -= v.Commission
+			}
+		}
+	}
+
+	return qty, nil
+
+	// var qty, newQty, comm, test float64
+	// for _, v := range resp.Fills {
+	// 	qty += v.Qty
+	// 	newQty += (v.Price * v.Qty)
+	// 	comm += v.Commission
+	// }
+
+	// if resp.Side == "SELL" {
+	// 	newQty -= comm
+	// 	qty = newQty
+	// }
+
+	// fmt.Printf("qty\t %.8f\n", qty)
+	// fmt.Printf("comm\t %.8f\n", comm)
+	// // if buy .. it costs ->
+	// fmt.Printf("newQty\t %.8f\n", newQty)
+
+	// fmt.Printf("test\t %.8f\n", test)
+	// return qty, nil
 }
 
 // SendCancel Wrapper canceles a order and removes from memory
@@ -410,9 +493,9 @@ func (e *Binance) StreamBookDepth(pair string, doneC <-chan bool, notifyC chan<-
 			book.Bids.Add(p, a)
 			// book.Add(p, a, true)
 		}
-		if e.Debug {
-			fmt.Printf("%-12s %-12d %-12d\n", sym.Name, len(book.Asks), len(book.Bids))
-		}
+		// if e.Debug {
+		// 	fmt.Printf("%-12s %-12d %-12d\n", sym.Name, len(book.Asks), len(book.Bids))
+		// }
 		notifyC <- sym.Name
 	}
 
@@ -629,49 +712,26 @@ func (e *Binance) GetKlines(symbol, timeframe string, limit int) (history.Bars, 
 	return bars, nil
 }
 
-func (e *Binance) LastTrade(symbol string, limit int64) (float64, float64, error) {
+func (e *Binance) LastTrade(symbol string, limit int64) (float64, float64, float64, float64, error) {
 	resp := []MyTrades{}
 	params := url.Values{}
 	params.Set("symbol", strings.ToUpper(symbol))
 	params.Set("limit", strconv.FormatInt(limit, 10))
 	url := fmt.Sprintf("%s%s?%s", apiURL, trades, params.Encode())
 	err := e.SendHTTPRequest("GET", url, true, &resp)
-	var price, amount float64
+	var price, amount, qqty, fee float64
 	if err != nil {
-		return price, amount, err
+		return price, amount, qqty, fee, err
 	}
+	// -----  PRINT ALL
 
-	// -----
-
-	// fmt.Println("len", len(resp))
-
-	// for i, v := range resp {
-	// 	if i > 0 && resp[i].Time != resp[0].Time {
-	// 		break
-	// 	}
-	// 	if price, err = strconv.ParseFloat(v.Price, 64); err != nil {
-	// 		log.Fatalln("pr", err)
-	// 	}
-	// 	if v.IsBuyer {
-	// 		q, err := strconv.ParseFloat(v.Quantity, 64)
-	// 		if err != nil {
-	// 			log.Fatalln("qty", err)
-	// 		}
-	// 		amount += q
-	// 	} else {
-	// 		q, err := strconv.ParseFloat(v.Quantity, 64)
-	// 		if err != nil {
-	// 			log.Fatalln("qty", err)
-	// 		}
-	// 		amount += q
-	// 	}
-
+	// for i, j := range resp {
+	// 	fmt.Printf("%d\n%+v\n", i, j)
 	// }
-	// fmt.Println("price", price, "qty", amount)
-	// fmt.Println("--------")
-	// price = 0
-	// amount = 0
+	// fmt.Println("------------------------------")
 
+	// ------------------------
+	isBuy := false
 	l := len(resp) - 1
 	for i := l; i >= 0; i-- {
 		if i < l && resp[i].Time != resp[l].Time {
@@ -686,17 +746,77 @@ func (e *Binance) LastTrade(symbol string, limit int64) (float64, float64, error
 				log.Fatalln("qty", err)
 			}
 			amount += q
+
+			isBuy = true
+			qq, err := strconv.ParseFloat(resp[i].QuoteQty, 64)
+			if err != nil {
+				log.Fatalln("qqty", err)
+			}
+			qqty += qq
+			fe, err := strconv.ParseFloat(resp[i].Commmission, 64)
+			if err != nil {
+				log.Fatalln("fee", err)
+			}
+			fee += fe
+
 		} else {
 			q, err := strconv.ParseFloat(resp[i].Quantity, 64)
 			if err != nil {
 				log.Fatalln("qty", err)
 			}
 			amount += q
+
+			// --- tmps ----
+			qq, err := strconv.ParseFloat(resp[i].QuoteQty, 64)
+			if err != nil {
+				log.Fatalln("qqty", err)
+			}
+			qqty += qq
+			fe, err := strconv.ParseFloat(resp[i].Commmission, 64)
+			if err != nil {
+				log.Fatalln("fee", err)
+			}
+			fee += fe
 		}
 	}
 
-	fmt.Println("price", price, "qty", amount)
-	fmt.Println("--------")
+	// fee removed if isBuy=true
+	if e.Debug {
+		log.Printf("temp>> isBuyer: %v    price: %-12f amount: %-12f |     qqty: %-12f fee: %-12f\n", isBuy, price, amount, qqty, fee)
+	}
 
-	return price, amount, nil
+	return price, amount, qqty, fee, nil
 }
+
+// func keepAlive(c *websocket.Conn, timeout time.Duration) {
+// 	ticker := time.NewTicker(timeout)
+
+// 	lastResponse := time.Now()
+// 	c.SetPongHandler(func(msg string) error {
+// 		lastResponse = time.Now()
+// 		return nil
+// 	})
+
+// 	for {
+// 		select {
+// 		case <-shutdown:
+// 			return
+
+// 		case <-ticker.C:
+// 			if time.Since(lastResponse) > timeout {
+// 				log.Println("keepAlive timeout. closing.")
+// 				c.Close()
+// 				return
+// 			}
+// 			deadline := time.Now().Add(10 * time.Second)
+// 			err := c.WriteControl(websocket.PingMessage, []byte{}, deadline)
+// 			if err != nil {
+// 				log.Println("keepAlive ERROR:", err.Error())
+// 				c.Close()
+// 				return
+// 			}
+
+// 		default:
+// 		}
+// 	}
+// }

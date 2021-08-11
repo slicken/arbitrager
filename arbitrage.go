@@ -14,7 +14,7 @@ import (
 type side byte
 
 const (
-	MAKER_FEE      = 0.00101
+	MAKER_FEE      = 0.001
 	buy       side = 0
 	sell      side = 1
 )
@@ -29,9 +29,11 @@ type Route [3]side
 type Set struct {
 	asset string
 	route Route
-	a     currencie.Pair
-	b     currencie.Pair
-	c     currencie.Pair
+	pair  [3]currencie.Pair
+	// --- delete ---
+	a currencie.Pair
+	b currencie.Pair
+	c currencie.Pair
 }
 
 type Sets []Set
@@ -54,59 +56,55 @@ var routes = []Arbitrage{
 
 var SetsMap = make(map[currencie.Pair]Sets)
 
-func TopSetsMapList() []string {
-	var points [3][]struct {
-		Key   string
-		Value int
-	}
+// func TopSetsMapList() []string {
+// 	var points [3][]struct {
+// 		Key   string
+// 		Value int
+// 	}
 
-	abc := make([]map[string]int, 3)
-	abc[0] = make(map[string]int)
-	abc[1] = make(map[string]int)
-	abc[2] = make(map[string]int)
+// 	abc := make([]map[string]int, 3)
+// 	abc[0] = make(map[string]int)
+// 	abc[1] = make(map[string]int)
+// 	abc[2] = make(map[string]int)
 
-	for n, m := range abc {
-		for _, sets := range SetsMap {
-			for _, set := range sets {
-				m[set.a.Name]++
-			}
-		}
-		for k, v := range m {
-			points[n] = append(points[n], struct {
-				Key   string
-				Value int
-			}{
-				Key:   k,
-				Value: v,
-			})
-		}
-		sort.Slice(points[n], func(i, j int) bool {
-			return points[n][i].Value > points[n][j].Value
-		})
+// 	for n, m := range abc {
+// 		for _, sets := range SetsMap {
+// 			for _, set := range sets {
+// 				m[set.a.Name]++
+// 			}
+// 		}
+// 		for k, v := range m {
+// 			points[n] = append(points[n], struct {
+// 				Key   string
+// 				Value int
+// 			}{
+// 				Key:   k,
+// 				Value: v,
+// 			})
+// 		}
+// 		sort.Slice(points[n], func(i, j int) bool {
+// 			return points[n][i].Value > points[n][j].Value
+// 		})
 
-	}
-	var ss []string
-	for i, v := range points {
-		for _, p := range v {
-			ss = append(ss, p.Key)
-			fmt.Printf("%-3d %-10s  =>  %-10d\n", i, p.Key, p.Value)
-		}
-	}
-	return ss
-}
+// 	}
+// 	var ss []string
+// 	for i, v := range points {
+// 		for _, p := range v {
+// 			ss = append(ss, p.Key)
+// 			fmt.Printf("%-3d %-10s  =>  %-10d\n", i, p.Key, p.Value)
+// 		}
+// 	}
+// 	return ss
+// }
 
 func SetMapList() []string {
 	var ss []string
 	for _, sets := range SetsMap {
 		for _, set := range sets {
-			if !strings.Contains(fmt.Sprintln(ss), set.a.Name) {
-				ss = append(ss, set.a.Name)
-			}
-			if !strings.Contains(fmt.Sprintln(ss), set.b.Name) {
-				ss = append(ss, set.b.Name)
-			}
-			if !strings.Contains(fmt.Sprintln(ss), set.c.Name) {
-				ss = append(ss, set.c.Name)
+			for _, p := range set.pair {
+				if !strings.Contains(fmt.Sprintln(ss), p.Name) {
+					ss = append(ss, p.Name)
+				}
 			}
 		}
 	}
@@ -116,14 +114,10 @@ func SetMapList() []string {
 func (s Sets) List() []string {
 	var ss []string
 	for _, set := range s {
-		if !strings.Contains(fmt.Sprintln(ss), set.a.Name) {
-			ss = append(ss, set.a.Name)
-		}
-		if !strings.Contains(fmt.Sprintln(ss), set.b.Name) {
-			ss = append(ss, set.b.Name)
-		}
-		if !strings.Contains(fmt.Sprintln(ss), set.c.Name) {
-			ss = append(ss, set.c.Name)
+		for _, p := range set.pair {
+			if !strings.Contains(fmt.Sprintln(ss), p.Name) {
+				ss = append(ss, p.Name)
+			}
 		}
 	}
 	return ss
@@ -164,9 +158,7 @@ func (s *bbs) Sets(curr string) (sets Sets) {
 				sets = append(sets, Set{
 					asset: curr,
 					route: Route{buy, buy, sell},
-					a:     a,
-					b:     b,
-					c:     c,
+					pair:  [3]currencie.Pair{a, b, c},
 				})
 			}
 		}
@@ -183,9 +175,7 @@ func (s *bss) Sets(curr string) (sets Sets) {
 				sets = append(sets, Set{
 					asset: curr,
 					route: Route{buy, sell, sell},
-					a:     a,
-					b:     b,
-					c:     c,
+					pair:  [3]currencie.Pair{a, b, c},
 				})
 			}
 		}
@@ -202,9 +192,7 @@ func (s *sbb) Sets(curr string) (sets Sets) {
 				sets = append(sets, Set{
 					asset: curr,
 					route: Route{sell, buy, buy},
-					a:     a,
-					b:     b,
-					c:     c,
+					pair:  [3]currencie.Pair{a, b, c},
 				})
 			}
 		}
@@ -221,9 +209,7 @@ func (s *ssb) Sets(curr string) (sets Sets) {
 				sets = append(sets, Set{
 					asset: curr,
 					route: Route{sell, sell, buy},
-					a:     a,
-					b:     b,
-					c:     c,
+					pair:  [3]currencie.Pair{a, b, c},
 				})
 			}
 		}
@@ -235,7 +221,9 @@ func mapSets() {
 	for _, currency := range assets {
 		for _, fn := range routes {
 			for _, set := range fn.Sets(currency) {
-				SetsMap[set.a] = append(SetsMap[set.a], set)
+				for _, p := range set.pair {
+					SetsMap[p] = append(SetsMap[p], set)
+				}
 			}
 		}
 	}
@@ -251,69 +239,75 @@ func containList(str string, list []string) bool {
 }
 
 type OrderSet struct {
-	profit float64
-	amount float64
-	next1  float64
-	next2  float64
-	next3  float64
-	msg    string
+	initial float64
+	profit  float64
+	perc    float64
+	amount  [3]float64
+	price   [3]float64
+	msg     string
 	Set
 }
 
 // calcStepProfits looks for highest profits with a decreasing amount loop
 func (s Set) calcStepProfits(amount float64) *OrderSet {
-	var profits = make([]OrderSet, 0)
+	var os = make([]*OrderSet, 0)
 
-	for stepAmount := amount; stepAmount > 0; stepAmount -= (amount / float64(steps)) {
-		if profit, a1, a2, a3, msg := s.calcDepthProfits(stepAmount); profit > 0 {
-			profits = append(profits, OrderSet{profit: profit, amount: stepAmount, next1: a1, next2: a2, next3: a3, msg: msg})
+	for size := amount; size > 0; size -= (amount / float64(steps)) {
+		if o := s.calcDepthProfits(size); o != nil {
+			os = append(os, o)
 		}
 	}
-	if len(profits) == 0 {
+	if len(os) == 0 {
 		return nil
 	}
 
-	sort.SliceStable(profits, func(i, j int) bool {
-		return profits[i].profit > profits[j].profit
+	sort.SliceStable(os, func(i, j int) bool {
+		return os[i].profit > os[j].profit
 	})
 
-	log.Printf(profits[0].msg, "==>")
-	// log.Printf("%-6s %-12f --> %-12f (%5.2f%%) %8s %-12s %8s %-12s %8s %-12s\n", s.asset, profits[0].amount, profits[0].profit, perc, Side[s.route[0]], s.a.Name, Side[s.route[1]], s.b.Name, Side[s.route[2]], s.c.Name)
-	profits[0].Set = s
-	return &profits[0]
+	log.Printf(os[0].msg, "==>")
+	os[0].Set = s
+	return os[0]
 }
 
-// calcDepthProfits returns real ask/bid prices depending on amount depth
-func (s Set) calcDepthProfits(amount float64) (float64, float64, float64, float64, string) {
-	var pair = [3]string{s.a.Name, s.b.Name, s.c.Name}
-	var price = [3]float64{0, 0, 0}
-	var next [3]float64
+// calcDepthProfitsOld returns real ask/bid prices depending on amount depth
+func (s Set) calcDepthProfitsOld(amount float64) *OrderSet {
+	o := &OrderSet{
+		initial: amount,
+		amount:  [3]float64{0, 0, 0},
+		price:   [3]float64{0, 0, 0},
+	}
 
-	nextAmount := amount
+	next := amount
 	for i, _action := range s.route {
-		book, _ := orderbook.GetBook(pair[i])
+		book, _ := orderbook.GetBook(s.pair[i].Name)
 
-		//		   buyFee=BASE_QUOTE=sellFee				  next=is amount orders will use
-		// 		action	pair			price			[]next			nextAmount		correct			comment
+		//		   buyFee	Base
+		//		   sellFee	Quote						  amount=is amount orders will use
+		// 		action	pair			price			[]amount		nextAmount		correct			comment			total
 		// loop 				300
-		// 	0	0BUY	PSGUSDT		/	16.543000	=	18,134558424	18,116423865	18,134558424	buy  amount
-		// 	1	1SELL	PSGBTC      *	0.000518	=	18,116423865	0,009374923		18,116423865	sell amount
-		// 	2	1SELL	BTCUSDT     *	32498.63000	=	304,672162114	304,367489952	0,009374923		sell amount
+		// 	0	0BUY	PSGUSDT		/	16.543000	=	18,134558424	18,116423865	18,134558424	buy  amount		300			initial
+		// 	1	1SELL	PSGBTC      *	0.000518	=	18,116423865	0,009374923		18,116423865	sell amount		0,00937		nextAmount
+		// 	2	1SELL	BTCUSDT     *	32498.63000	=	304,672162114	304,367489952	0,009374923		sell amount		304,367		nextAmount
 		//						300
-		// 	0	0BUY	BTCUSDT		/	32498.63000	=	0,009231158		0,009221927		0,009231158		buy  amount
-		// 	1	0BUY	PSGBTC      /	0.000518	=	17,802948266	17,785145317	17,802948266	buy  amount
-		// 	2	1SELL	PSGUSDT     *	16.543000	=	17,785145317	293,92543932	17,785145317	sell amount
+		// 	0	0BUY	BTCUSDT		/	32498.63000	=	0,009231158		0,009221927		0,009231158		buy  amount		0,009231158	amount
+		// 	1	0BUY	PSGBTC      /	0.000518	=	17,802948266	17,785145317	17,802948266	buy  amount		0,009231158	amount -1
+		// 	2	1SELL	PSGUSDT     *	16.543000	=	17,785145317	293,92543932	17,785145317	sell amount		293,9254	nextAmount
+		//						100
+		// 	0	0BUY	BNBUSDT		/	302.870000	=	0,330174662		0,329844488		0,330174662		buy  amount		100			initial
+		// 	1	0BUY	C98BNB      /	0.005900	=	55,905845424	55,849939578	55,905845424	buy  amount		0,330174662	amount -1
+		// 	2	1SELL	C98USDT     *	1.830000	=	55,849939578	102,205389428	55,849939578	sell amount		102,2053894 nextAmount
 
 		switch _action {
 		// buy
 		case 0:
 			asks := book.Asks.Get()
 			for _, depth := range asks {
-				if depth.Total >= (nextAmount / depth.Price) {
-					price[i] = depth.Price
-					nextAmount /= depth.Price
-					next[i] = nextAmount
-					nextAmount -= (nextAmount * MAKER_FEE)
+				if depth.Total >= (next / depth.Price) {
+					o.price[i] = depth.Price
+					next /= depth.Price
+					o.amount[i] = next
+					next -= (next * MAKER_FEE)
 					break
 				}
 			}
@@ -321,33 +315,83 @@ func (s Set) calcDepthProfits(amount float64) (float64, float64, float64, float6
 		case 1:
 			bids := book.Bids.Get()
 			for _, depth := range bids {
-				if depth.Total >= nextAmount {
-					price[i] = depth.Price
-					nextAmount *= depth.Price
-					next[i] = nextAmount / price[i]
-					nextAmount -= (nextAmount * MAKER_FEE)
+				if depth.Total >= next {
+					o.price[i] = depth.Price
+					next *= depth.Price
+					o.amount[i] = next / o.price[i]
+					next -= (next * MAKER_FEE)
 					break
 				}
 			}
 		}
-		if price[i] == 0 {
-			return 0, 0, 0, 0, ""
+		if o.price[i] == 0 {
+			return nil
 		}
 	}
 
-	profit := nextAmount - amount
-	perc := ((amount+profit)/amount)*100 - 100
-	if 0 >= profit {
-		return 0, 0, 0, 0, ""
+	o.profit = next - o.initial
+	o.perc = ((o.initial+o.profit)/o.initial)*100 - 100
+	if 0.1 > o.perc {
+		return nil
 	}
-	msg := fmt.Sprintf("%-6s %-12f %%s %-12f (%5.2f%%%%) %8s %-12s %-12f %8s %-12s %-12f %8s %-12s %-12f\n",
-		s.asset, amount, profit, perc, Side[s.route[0]], pair[0], price[0], Side[s.route[1]], pair[1], price[1], Side[s.route[2]], pair[2], price[2])
+	o.msg = fmt.Sprintf("%-6s %-12f %%s %-12f (%5.2f%%%%) %8s %-12s %-12f %8s %-12s %-12f %8s %-12s %-12f\n",
+		s.asset, o.initial, o.profit, o.perc, Side[s.route[0]], s.pair[0].Name, o.price[0], Side[s.route[1]], s.pair[1].Name, o.price[1], Side[s.route[2]], s.pair[2].Name, o.price[2])
 	if verbose {
-		log.Printf(msg, "   ")
+		log.Printf(o.msg, "   ")
 	}
-	if target > perc {
-		return 0, 0, 0, 0, ""
+	if target > o.perc {
+		return nil
 	}
 
-	return profit, next[0], next[1], next[2], msg
+	return o
+}
+
+// calcDepthProfits calculates triangular arbitrage profits
+// using real ask/bid prices from orderbook price depth
+func (s Set) calcDepthProfits(amount float64) *OrderSet {
+	o := &OrderSet{
+		initial: amount,
+		amount:  [3]float64{0, 0, 0},
+		price:   [3]float64{0, 0, 0},
+	}
+
+	next := amount
+	for i, _action := range s.route {
+		book, _ := orderbook.GetBook(s.pair[i].Name)
+
+		switch _action {
+		case 0: // buy
+			dp := book.Asks.GetDepthPrice(next - (MAKER_FEE * next))
+			if dp < 0 {
+				return nil
+			}
+			o.price[i] = dp
+			next /= dp
+			o.amount[i] = next
+		case 1: // sell
+			dp := book.Bids.GetDepthPrice(next - (MAKER_FEE * next))
+			if dp < 0 {
+				return nil
+			}
+			o.price[i] = dp
+			next *= dp
+			o.amount[i] = next / o.price[i]
+		}
+	}
+
+	o.profit = next - o.initial
+	o.perc = ((o.initial+o.profit)/o.initial)*100 - 100
+	if 0.1 > o.perc {
+		return nil
+	}
+	o.msg = fmt.Sprintf("%-6s %-12f %%s %-12f (%5.2f%%%%) %8s %-12s %-12f %8s %-12s %-12f %8s %-12s %-12f\n",
+		s.asset, o.initial, o.profit, o.perc, Side[s.route[0]], s.pair[0].Name, o.price[0], Side[s.route[1]], s.pair[1].Name, o.price[1], Side[s.route[2]], s.pair[2].Name, o.price[2])
+	if verbose {
+		log.Printf(o.msg, "   ")
+	}
+	if target > o.perc {
+		return nil
+	}
+
+	return o
 }

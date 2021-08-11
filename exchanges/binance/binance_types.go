@@ -83,6 +83,7 @@ type NewOrderRequest struct {
 	TradeType        string
 	TimeInForce      string
 	Quantity         float64
+	QuoteQuantity    float64
 	Price            float64
 	NewClientOrderID string
 	StopPrice        float64

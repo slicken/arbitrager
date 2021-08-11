@@ -166,7 +166,7 @@ func (v asks) Get() (items []Item) {
 	}
 	sort.Sort(sort.Float64Slice(keys))
 
-	total := 0.
+	total := 0.0
 	for _, k := range keys {
 		total += v[k]
 		items = append(items, Item{k, v[k], total})
@@ -185,10 +185,30 @@ func (v bids) Get() (items []Item) {
 	}
 	sort.Sort(sort.Reverse(sort.Float64Slice(keys)))
 
-	total := 0.
+	total := 0.0
 	for _, k := range keys {
 		total += v[k]
 		items = append(items, Item{k, v[k], total})
 	}
 	return
+}
+
+// GetDepthPrice
+func (v asks) GetDepthPrice(amount float64) float64 {
+	for _, depth := range v.Get() {
+		if depth.Total >= amount {
+			return depth.Price
+		}
+	}
+	return -1
+}
+
+// GetDepthPrice
+func (v bids) GetDepthPrice(amount float64) float64 {
+	for _, depth := range v.Get() {
+		if depth.Total >= amount {
+			return depth.Price
+		}
+	}
+	return -1
 }

@@ -8,6 +8,8 @@ type Pair struct {
 	QuoteDecimal int
 	Base         string
 	BaseDecimal  int
+	FilterPrice  float64
+	FilterSize   float64
 }
 
 // Pair returns a currency pair string

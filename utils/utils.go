@@ -17,12 +17,6 @@ func Round(f float64) float64 {
 	return math.Floor(f + .5)
 }
 
-// // RoundPlus sets decimals by precision
-// func RoundPlus(f float64, precision int) float64 {
-// 	shift := math.Pow(10, float64(precision))
-// 	return Round(f*shift) / shift
-// }
-
 // RoundPlus sets decimals by precision
 func RoundPlus(f float64, precision int) float64 {
 	shift := math.Pow(10, float64(precision))
@@ -37,6 +31,12 @@ func CountDecimal(v float64) int {
 		return len(s) - i - 1
 	}
 	return 0
+}
+
+// FloatImitate imitates decimals of candidate
+func FloatImitate(f, candidate float64) float64 {
+	shift := math.Pow(10, float64(CountDecimal(candidate)))
+	return math.Floor(f*shift) / shift
 }
 
 func TypeName(v interface{}) string {
