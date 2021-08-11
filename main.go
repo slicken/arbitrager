@@ -371,14 +371,13 @@ func main() {
 										}
 										break
 									}
-
 									if i == 0 {
 										lastTrade = time.Now().Add(5 * time.Minute)
 										log.Printf(msg, "fail         skipping trade. we failed to create o and now it would be to late, cause this is time sensitive.")
 										return
 									}
 									tries++
-									log.Printf(msg, "fail  error: "+err.Error())
+									log.Printf(msg, "fail         "+err.Error())
 								}
 								// exit program if we get here. > 5 tries
 								if err != nil {
@@ -390,7 +389,6 @@ func main() {
 							log.Printf(msg, fmt.Sprintf("%f (%5.2f%%)", qty-o.initial, (qty/o.initial)*100-100))
 
 							// update balance
-							log.Println("updating balance...")
 							tries := 0
 							delay := 100 * time.Microsecond
 							for 5 > tries {

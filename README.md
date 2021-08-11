@@ -44,22 +44,21 @@ Arguments       Default   Example   Info
   -a, --asset             USDT,BTC  enter assets to arbitrage. separateor ',' if more than one
       --all                         arbitrage all assets with a balance
   -e, --except            USDC      except thease assets
-  -t, --target    1.5     2         minimum target in percentage to trade
-  -s, --size      500     100       tradesize mearesured in USD
-  -n, --decrease  1024    2         also look for arbitrages with a decrease balance N times
-  -l, --limit     false             limit maximum connections to orderbooks
-      --diff      false             streams orderbook diffs (1s) instead of snapshots (100ms)
+  -t, --target    2.0     1.7       minimum target in percentage to trade
+  -s, --size      100     500       tradesize mearesured in USD. (0=blanace)
+  -n, --decrease          2         also look for arbitrages with a decrease balance N times
+  -l, --limit     1024              limit maximum connections to orderbooks
+      --diff      false             streams orderbook diffs (1sec) instead of snapshots (100ms)
       --download  max     2         downloads orderbook, for '--diff' mode only
       --CPU                         limit usage of cpu cores
       --verbose
   -h  --help
                                        -- slk prod 2021 --
 
-slicken@slk:~/go/src/github.com/slicken/arbitrager$ ./app -a USDT -t 1 -s 100 -l 200 --verbose
+slicken@slk:~/go/src/github.com/slicken/arbitrager$ ./app -a USDT -t 1 -s 100 -l 200
 2021/07/23 16:03:17 tradesize (in USD) 100
+2021/07/23 16:03:17 target is 1.00%
 2021/07/23 16:03:17 limit orderbooks to 200
-2021/07/23 16:03:17 verbose enabled
-2021/07/23 16:03:17 trade target is 1.00%
 2021/07/23 16:03:17 reading config...
 2021/07/23 16:03:18 connected to binance
 2021/07/23 16:03:18 logging to "app_20210723.log"
