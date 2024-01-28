@@ -22,16 +22,14 @@ Binance
 # TODO:
 - [x] stream orderbook snapshots default (100ms)
 - [x] better market order function
-  - [x] retry function
+  - [x] retry or reverse trade if fail
   - [x] use market order response amounts
 - [ ] Make orderbook lockless
 - [ ] Kucoin exchange support
 - [ ] Buy and Sell cross exchange strategy
 - [ ] Buy and sell futures market strategy
-- [ ] FTX exchange support
 - [ ] more exchange supports...
 - [ ] Optimize preformance
-- [ ] and more...
 <br><br>
 
 
