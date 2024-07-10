@@ -57,8 +57,7 @@ Arguments       Default   Example   Info
       --download  max     2         downloads orderbook, for '--diff' mode only
       --CPU                         limit usage of cpu cores
       --verbose
-  -h  --help
-                                       -- slk prod 2021 --`)
+  -h  --help`)
 	os.Exit(code)
 }
 
