@@ -51,7 +51,6 @@ Arguments       Default   Example   Info
       --CPU                         limit usage of cpu cores
       --verbose
   -h  --help
-                                       -- slk prod 2021 --
 
 slicken@slk:~/go/src/github.com/slicken/arbitrager$ ./app -a USDT -t .75 -s 100 -l 200
 2021/07/23 16:03:17 tradesize (in USD) 100
